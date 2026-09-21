@@ -18,6 +18,11 @@ class HomeUiStateTest {
     }
 
     @Test
+    fun `today reminder count starts at zero`() {
+        assertEquals(0, HomeUiState().todayReminderCount)
+    }
+
+    @Test
     fun `disabled reminder reports closed`() {
         assertEquals(
             "已关闭",

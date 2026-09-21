@@ -18,6 +18,13 @@ API 36 是当前机器已安装并能验证的稳定 SDK。API 37 尚未安装�
 5. 通知动作通过显式 `PendingIntent` 发送给不导出的 `BroadcastReceiver`。
 6. 配置和暂停截止时间使用 Preferences DataStore 保存。
 
+## 每日提醒次数
+
+- 使用 Preferences DataStore 按 ISO 本地日期保存独立计数桶，例如 `reminder_count_2026-09-21`。
+- 唯一写入口为 `ReminderStatsRepository.recordTriggeredReminder()`；仅在系统通知真正触发后调用。
+- 进入 App、开始计时以及处理“收到”“暂停”等通知操作不得调用计数入口。
+- 数据模型支持任意闭区间汇总，后续周/月统计无需迁移已有每日数据。
+
 不使用 AccessibilityService。WorkManager 的执行时机不精确，不适合持续的前台 App 判断；AlarmManager 仅在后续验证确有必要时用于暂停恢复兜底。
 
 ## 主要风险

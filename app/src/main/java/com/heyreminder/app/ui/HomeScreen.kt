@@ -244,6 +244,7 @@ private fun StatusCard(state: HomeUiState) {
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             StatusRow(label = "提醒状态", value = state.statusLabel)
+            StatusRow(label = "今天已提醒", value = "${state.todayReminderCount} 次")
             StatusRow(label = "当前模式", value = state.modeLabel)
             StatusRow(label = "监控 App", value = "${state.monitoredAppCount} 个")
             StatusRow(label = "连续使用提醒", value = "${state.reminderMinutes} 分钟")
