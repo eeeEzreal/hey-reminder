@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Hey!</string>
+    <string name="usage_access_reason">用于判断当前前台 App，并在连续使用时间过长时发送提醒。</string>
 </resources>
-
