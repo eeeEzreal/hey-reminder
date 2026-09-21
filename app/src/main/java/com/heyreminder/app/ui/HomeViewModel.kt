@@ -3,6 +3,7 @@ package com.heyreminder.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.heyreminder.app.data.AppSelectionRepository
 import com.heyreminder.app.data.DailyReminderCounts
 import com.heyreminder.app.data.ReminderStatsRepository
 import com.heyreminder.app.data.UsageAccessRepository
@@ -31,6 +32,7 @@ data class HomeUiState(
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val usageAccessRepository = UsageAccessRepository(application)
     private val reminderStatsRepository = ReminderStatsRepository(application)
+    private val appSelectionRepository = AppSelectionRepository(application)
     private var dailyReminderCounts = DailyReminderCounts()
     private val _uiState = MutableStateFlow(
         HomeUiState(hasUsageAccess = usageAccessRepository.hasUsageAccess()),
@@ -42,6 +44,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             reminderStatsRepository.dailyCounts.collect { counts ->
                 dailyReminderCounts = counts
                 refreshTodayReminderCount()
+            }
+        }
+        viewModelScope.launch {
+            appSelectionRepository.selectedPackages.collect { selectedPackages ->
+                _uiState.update { state ->
+                    state.copy(monitoredAppCount = selectedPackages.size)
+                }
             }
         }
     }

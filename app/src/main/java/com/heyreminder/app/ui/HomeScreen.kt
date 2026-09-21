@@ -26,6 +26,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +48,7 @@ import com.heyreminder.app.ui.theme.HeyReminderTheme
 fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
+    var isSelectingApps by rememberSaveable { mutableStateOf(false) }
     val settingsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) {
@@ -63,8 +67,13 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
         }
     }
 
-    if (state.hasUsageAccess) {
-        HomeScreen(state = state)
+    if (state.hasUsageAccess && isSelectingApps) {
+        AppSelectionRoute(onBack = { isSelectingApps = false })
+    } else if (state.hasUsageAccess) {
+        HomeScreen(
+            state = state,
+            onManageApps = { isSelectingApps = true },
+        )
     } else {
         UsageAccessScreen(
             onOpenSettings = {
@@ -188,7 +197,6 @@ fun HomeScreen(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 onClick = onManageApps,
-                enabled = false,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp),
