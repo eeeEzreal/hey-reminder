@@ -11,12 +11,12 @@ API 36 是当前机器已安装并能验证的稳定 SDK。API 37 尚未安装�
 
 ## 监控方案
 
-1. 用户在 Hey! 前台主动打开总开关。
-2. `specialUse` 类型的前台服务以低频轮询 `UsageStatsManager.queryEvents()`。
-3. 读取最新的 `ACTIVITY_RESUMED` / `ACTIVITY_PAUSED`，并结合屏幕交互与锁屏状态判断当前前台包。
-4. 纯 Kotlin 计时状态机负责“进入开始、离开清零、收到后完整周期、延迟提醒、全局暂停”。
-5. 通知动作通过显式 `PendingIntent` 发送给不导出的 `BroadcastReceiver`。
-6. 配置和暂停截止时间使用 Preferences DataStore 保存。
+1. Hey! 在已授权且名单非空时，从可见界面启动 `specialUse` 类型的前台服务。
+2. 服务每秒轮询 `UsageStatsManager.queryEvents()`，用 `ACTIVITY_RESUMED` / `ACTIVITY_PAUSED` / `ACTIVITY_STOPPED` 维护当前恢复的 Activity 集合。
+3. 使用 `PowerManager.isInteractive` 和 `KeyguardManager.isDeviceLocked` 识别锁屏；锁屏、系统界面、Hey! 自身和未选 App 都会结束当前会话。
+4. 纯 Kotlin 状态机以 `SystemClock.elapsedRealtime()` 计时，目标 App 改变或离开时立即重置。
+5. 默认阈值为 10 分钟；每个连续使用会话只产生一次 `ReminderConditionReachedEvent`，目前仅写入调试日志。
+6. Phase 4 不发送使用超时通知，也不调用 `ReminderStatsRepository.recordTriggeredReminder()`；前台服务的低优先级常驻通知仅用于满足 Android 后台运行要求。
 
 ## 每日提醒次数
 
@@ -31,6 +31,12 @@ API 36 是当前机器已安装并能验证的稳定 SDK。API 37 尚未安装�
 - Android 11+ 使用 manifest `<queries>` 声明对应 intent 可见性，不申请 `QUERY_ALL_PACKAGES`。
 - Hey! 自身从候选列表排除；名称或图标读取失败时使用安全回退，不因单个 App 异常中断列表。
 - 已选包名集合保存在本机 Preferences DataStore，首页实时显示当前选择数量。
+
+## App 图标
+
+- Adaptive Icon 沿用现有 foreground/background 资源结构。
+- 背景为附件 Logo 对应的柔和桃橙至珊瑚粉渐变，前景为米白色描边感叹号。
+- 感叹号保持在 Adaptive Icon 安全区域内，并复用为 Android 13+ monochrome 图层。
 
 不使用 AccessibilityService。WorkManager 的执行时机不精确，不适合持续的前台 App 判断；AlarmManager 仅在后续验证确有必要时用于暂停恢复兜底。
 
@@ -47,4 +53,5 @@ API 36 是当前机器已安装并能验证的稳定 SDK。API 37 尚未安装�
 - Phase 1：可构建、可启动、名称/图标/基础首页正确。
 - Phase 2：Usage Access 解释、跳转和返回后状态刷新。已完成并通过 API 35 模拟器验证。
 - Phase 3：可启动 App 列表、图标/名称、名单选择与本地保存。已完成并通过 API 35 模拟器重启验证。
+- Phase 4：前台 App 检测、锁屏判断、连续使用状态机和单次阈值事件。已完成并通过 API 35 模拟器切换/锁屏验证。
 - 后续阶段严格按任务书顺序推进，每阶段先测试再继续。

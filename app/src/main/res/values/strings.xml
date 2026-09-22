@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">Hey!</string>
     <string name="usage_access_reason">用于判断当前前台 App，并在连续使用时间过长时发送提醒。</string>
+    <string name="monitor_channel_name">使用时间监控</string>
+    <string name="monitor_channel_description">显示 Hey! 正在监控所选 App 的连续使用时间</string>
+    <string name="monitor_notification_title">Hey! 正在监控</string>
+    <string name="monitor_notification_text">正在计算所选 App 的连续使用时间</string>
+    <string name="monitor_special_use_subtype">持续检测用户所选 App 的前台使用情况并计算连续使用时间</string>
 </resources>

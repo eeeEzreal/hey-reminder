@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -42,11 +44,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.heyreminder.app.data.UsageAccessRepository
+import com.heyreminder.app.monitor.UsageMonitorService
 import com.heyreminder.app.ui.theme.HeyReminderTheme
 
 @Composable
 fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var isSelectingApps by rememberSaveable { mutableStateOf(false) }
     val settingsLauncher = rememberLauncherForActivityResult(
@@ -64,6 +68,14 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(state.hasUsageAccess, state.monitoredAppCount) {
+        if (state.hasUsageAccess && state.monitoredAppCount > 0) {
+            UsageMonitorService.start(context)
+        } else {
+            UsageMonitorService.stop(context)
         }
     }
 
