@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import com.heyreminder.app.MainActivity
 import com.heyreminder.app.R
 import com.heyreminder.app.data.AppSelectionRepository
+import com.heyreminder.app.data.ReminderStatsRepository
 import com.heyreminder.app.data.UsageAccessRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,7 @@ class UsageMonitorService : Service() {
     private lateinit var appSelectionRepository: AppSelectionRepository
     private lateinit var usageAccessRepository: UsageAccessRepository
     private lateinit var foregroundAppDetector: ForegroundAppDetector
+    private lateinit var reminderCoordinator: ReminderNotificationCoordinator
     private val usageTracker = ContinuousUsageTracker()
 
     @Volatile
@@ -45,6 +47,11 @@ class UsageMonitorService : Service() {
         appSelectionRepository = AppSelectionRepository(this)
         usageAccessRepository = UsageAccessRepository(this)
         foregroundAppDetector = UsageEventsForegroundAppDetector(this)
+        val reminderStatsRepository = ReminderStatsRepository(this)
+        reminderCoordinator = ReminderNotificationCoordinator(
+            notificationGateway = UsageReminderNotifier(this),
+            recordTriggeredReminder = reminderStatsRepository::recordTriggeredReminder,
+        )
         createNotificationChannel()
         startAsForegroundService()
 
@@ -95,6 +102,19 @@ class UsageMonitorService : Service() {
             )
             usageState = update.state
             logStateTransition(previousState, update)
+            update.event?.let { event ->
+                runCatching {
+                    reminderCoordinator.onReminderConditionReached(event)
+                }.onSuccess { notificationTriggered ->
+                    Log.i(
+                        TAG,
+                        "reminder_notification_triggered package=${event.packageName} " +
+                            "success=$notificationTriggered",
+                    )
+                }.onFailure { error ->
+                    Log.e(TAG, "Unable to deliver or record reminder notification", error)
+                }
+            }
             delay(POLL_INTERVAL_MILLIS)
         }
     }

@@ -13,6 +13,18 @@ class HomeUiStateTest {
     fun `enabled reminder is ready when usage access is granted`() {
         assertEquals(
             "准备就绪",
+            HomeUiState(
+                isReminderEnabled = true,
+                hasUsageAccess = true,
+                hasNotificationPermission = true,
+            ).statusLabel,
+        )
+    }
+
+    @Test
+    fun `enabled reminder waits when notification permission is missing`() {
+        assertEquals(
+            "等待通知权限",
             HomeUiState(isReminderEnabled = true, hasUsageAccess = true).statusLabel,
         )
     }
@@ -26,7 +38,11 @@ class HomeUiStateTest {
     fun `disabled reminder reports closed`() {
         assertEquals(
             "已关闭",
-            HomeUiState(isReminderEnabled = false, hasUsageAccess = true).statusLabel,
+            HomeUiState(
+                isReminderEnabled = false,
+                hasUsageAccess = true,
+                hasNotificationPermission = true,
+            ).statusLabel,
         )
     }
 }

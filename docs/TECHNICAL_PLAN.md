@@ -15,8 +15,16 @@ API 36 是当前机器已安装并能验证的稳定 SDK。API 37 尚未安装�
 2. 服务每秒轮询 `UsageStatsManager.queryEvents()`，用 `ACTIVITY_RESUMED` / `ACTIVITY_PAUSED` / `ACTIVITY_STOPPED` 维护当前恢复的 Activity 集合。
 3. 使用 `PowerManager.isInteractive` 和 `KeyguardManager.isDeviceLocked` 识别锁屏；锁屏、系统界面、Hey! 自身和未选 App 都会结束当前会话。
 4. 纯 Kotlin 状态机以 `SystemClock.elapsedRealtime()` 计时，目标 App 改变或离开时立即重置。
-5. 默认阈值为 10 分钟；每个连续使用会话只产生一次 `ReminderConditionReachedEvent`，目前仅写入调试日志。
-6. Phase 4 不发送使用超时通知，也不调用 `ReminderStatsRepository.recordTriggeredReminder()`；前台服务的低优先级常驻通知仅用于满足 Android 后台运行要求。
+5. 默认阈值为 10 分钟；每个连续使用会话只产生一次 `ReminderConditionReachedEvent`。
+6. 阈值事件通过独立的高优先级渠道发送使用提醒；只有通知权限、全局通知和渠道均可用且通知成功提交后，才调用 `ReminderStatsRepository.recordTriggeredReminder()`。
+7. 前台服务的低优先级常驻通知仅用于满足 Android 后台运行要求，与使用超时提醒使用不同渠道。
+
+## 系统通知
+
+- Android 13+ 在 Usage Access 之后单独说明并请求 `POST_NOTIFICATIONS`；没有通知权限时不启动监控服务，避免后台计时却无法提醒。
+- 通知标题为 `Hey!`，正文包含被监控 App 的显示名称和本次连续使用分钟数；名称读取失败时安全回退到包名。
+- Phase 6 的通知点击仅打开 Hey!，不提前包含“收到”“再给我 X 分钟”或“暂停 X 分钟”，这些操作留在 Phase 7。
+- 通知投递与提醒次数写入由可测试协调器串联，投递失败不增加“今天已提醒”。
 
 ## 每日提醒次数
 
@@ -54,4 +62,6 @@ API 36 是当前机器已安装并能验证的稳定 SDK。API 37 尚未安装�
 - Phase 2：Usage Access 解释、跳转和返回后状态刷新。已完成并通过 API 35 模拟器验证。
 - Phase 3：可启动 App 列表、图标/名称、名单选择与本地保存。已完成并通过 API 35 模拟器重启验证。
 - Phase 4：前台 App 检测、锁屏判断、连续使用状态机和单次阈值事件。已完成并通过 API 35 模拟器切换/锁屏验证。
+- Phase 5：连续使用计时已与 Phase 4 合并完成，进入、离开、重新进入及目标 App 间切换均由状态机覆盖。
+- Phase 6：达到阈值后发送系统通知，并在成功投递后记录每日提醒次数。已完成单元测试及 API 35 系统通知验证。
 - 后续阶段严格按任务书顺序推进，每阶段先测试再继续。

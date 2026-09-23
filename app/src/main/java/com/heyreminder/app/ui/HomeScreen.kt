@@ -1,6 +1,8 @@
 package com.heyreminder.app.ui
 
+import android.Manifest
 import android.content.ActivityNotFoundException
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +60,11 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
     ) {
         viewModel.refreshUsageAccess()
     }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) {
+        viewModel.refreshUsageAccess()
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -71,22 +78,23 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
         }
     }
 
-    LaunchedEffect(state.hasUsageAccess, state.monitoredAppCount) {
-        if (state.hasUsageAccess && state.monitoredAppCount > 0) {
+    LaunchedEffect(
+        state.hasUsageAccess,
+        state.hasNotificationPermission,
+        state.monitoredAppCount,
+    ) {
+        if (
+            state.hasUsageAccess &&
+            state.hasNotificationPermission &&
+            state.monitoredAppCount > 0
+        ) {
             UsageMonitorService.start(context)
         } else {
             UsageMonitorService.stop(context)
         }
     }
 
-    if (state.hasUsageAccess && isSelectingApps) {
-        AppSelectionRoute(onBack = { isSelectingApps = false })
-    } else if (state.hasUsageAccess) {
-        HomeScreen(
-            state = state,
-            onManageApps = { isSelectingApps = true },
-        )
-    } else {
+    if (!state.hasUsageAccess) {
         UsageAccessScreen(
             onOpenSettings = {
                 try {
@@ -96,6 +104,61 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
                 }
             },
         )
+    } else if (!state.hasNotificationPermission) {
+        NotificationPermissionScreen(
+            onRequestPermission = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    viewModel.refreshUsageAccess()
+                }
+            },
+        )
+    } else if (isSelectingApps) {
+        AppSelectionRoute(onBack = { isSelectingApps = false })
+    } else {
+        HomeScreen(
+            state = state,
+            onManageApps = { isSelectingApps = true },
+        )
+    }
+}
+
+@Composable
+fun NotificationPermissionScreen(
+    onRequestPermission: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 48.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column {
+            BrandMark()
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "需要通知权限",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "Hey! 只会在连续使用达到提醒时间时发送通知。没有这项权限，就无法及时提醒你。",
+                modifier = Modifier.padding(top = 16.dp),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Button(
+            onClick = onRequestPermission,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Text("允许通知")
+        }
     }
 }
 
@@ -305,5 +368,13 @@ private fun HomeScreenPreview() {
 private fun UsageAccessScreenPreview() {
     HeyReminderTheme {
         UsageAccessScreen(onOpenSettings = {})
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun NotificationPermissionScreenPreview() {
+    HeyReminderTheme {
+        NotificationPermissionScreen(onRequestPermission = {})
     }
 }

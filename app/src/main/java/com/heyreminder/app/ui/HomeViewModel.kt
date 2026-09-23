@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.heyreminder.app.data.AppSelectionRepository
 import com.heyreminder.app.data.DailyReminderCounts
+import com.heyreminder.app.data.NotificationPermissionRepository
 import com.heyreminder.app.data.ReminderStatsRepository
 import com.heyreminder.app.data.UsageAccessRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 data class HomeUiState(
     val isReminderEnabled: Boolean = true,
     val hasUsageAccess: Boolean = false,
+    val hasNotificationPermission: Boolean = false,
     val todayReminderCount: Int = 0,
     val modeLabel: String = "黑名单",
     val monitoredAppCount: Int = 0,
@@ -25,6 +27,7 @@ data class HomeUiState(
         get() = when {
             !isReminderEnabled -> "已关闭"
             !hasUsageAccess -> "等待授权"
+            !hasNotificationPermission -> "等待通知权限"
             else -> "准备就绪"
         }
 }
@@ -32,10 +35,15 @@ data class HomeUiState(
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val usageAccessRepository = UsageAccessRepository(application)
     private val reminderStatsRepository = ReminderStatsRepository(application)
+    private val notificationPermissionRepository = NotificationPermissionRepository(application)
     private val appSelectionRepository = AppSelectionRepository(application)
     private var dailyReminderCounts = DailyReminderCounts()
     private val _uiState = MutableStateFlow(
-        HomeUiState(hasUsageAccess = usageAccessRepository.hasUsageAccess()),
+        HomeUiState(
+            hasUsageAccess = usageAccessRepository.hasUsageAccess(),
+            hasNotificationPermission =
+                notificationPermissionRepository.hasNotificationPermission(),
+        ),
     )
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -59,6 +67,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { state ->
             state.copy(
                 hasUsageAccess = usageAccessRepository.hasUsageAccess(),
+                hasNotificationPermission =
+                    notificationPermissionRepository.hasNotificationPermission(),
                 todayReminderCount = dailyReminderCounts[reminderStatsRepository.currentDate()],
             )
         }
