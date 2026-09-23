@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.heyreminder.app.data.AppSelectionRepository
 import com.heyreminder.app.data.DailyReminderCounts
 import com.heyreminder.app.data.NotificationPermissionRepository
+import com.heyreminder.app.data.MonitoringPauseRepository
 import com.heyreminder.app.data.ReminderStatsRepository
 import com.heyreminder.app.data.UsageAccessRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,7 @@ data class HomeUiState(
     val isReminderEnabled: Boolean = true,
     val hasUsageAccess: Boolean = false,
     val hasNotificationPermission: Boolean = false,
+    val isTemporarilyPaused: Boolean = false,
     val todayReminderCount: Int = 0,
     val modeLabel: String = "黑名单",
     val monitoredAppCount: Int = 0,
@@ -28,6 +30,7 @@ data class HomeUiState(
             !isReminderEnabled -> "已关闭"
             !hasUsageAccess -> "等待授权"
             !hasNotificationPermission -> "等待通知权限"
+            isTemporarilyPaused -> "已暂停"
             else -> "准备就绪"
         }
 }
@@ -36,6 +39,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val usageAccessRepository = UsageAccessRepository(application)
     private val reminderStatsRepository = ReminderStatsRepository(application)
     private val notificationPermissionRepository = NotificationPermissionRepository(application)
+    private val monitoringPauseRepository = MonitoringPauseRepository(application)
     private val appSelectionRepository = AppSelectionRepository(application)
     private var dailyReminderCounts = DailyReminderCounts()
     private val _uiState = MutableStateFlow(
@@ -58,6 +62,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             appSelectionRepository.selectedPackages.collect { selectedPackages ->
                 _uiState.update { state ->
                     state.copy(monitoredAppCount = selectedPackages.size)
+                }
+            }
+        }
+        viewModelScope.launch {
+            monitoringPauseRepository.pauseUntilEpochMillis.collect { pauseUntilEpochMillis ->
+                _uiState.update { state ->
+                    state.copy(
+                        isTemporarilyPaused = pauseUntilEpochMillis > System.currentTimeMillis(),
+                    )
                 }
             }
         }

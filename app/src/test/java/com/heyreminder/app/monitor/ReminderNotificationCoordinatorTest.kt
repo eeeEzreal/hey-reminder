@@ -9,6 +9,8 @@ import org.junit.Test
 class ReminderNotificationCoordinatorTest {
     private val event = ReminderConditionReachedEvent(
         packageName = "com.example.target",
+        sessionStartedAtElapsedMillis = 1_000L,
+        reminderDueAtElapsedMillis = 601_000L,
         continuousDurationMillis = 10L * 60L * 1_000L,
     )
 

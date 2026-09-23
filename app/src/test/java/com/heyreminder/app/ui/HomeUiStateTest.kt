@@ -45,4 +45,16 @@ class HomeUiStateTest {
             ).statusLabel,
         )
     }
+
+    @Test
+    fun `temporary pause is visible when permissions are ready`() {
+        assertEquals(
+            "已暂停",
+            HomeUiState(
+                hasUsageAccess = true,
+                hasNotificationPermission = true,
+                isTemporarilyPaused = true,
+            ).statusLabel,
+        )
+    }
 }

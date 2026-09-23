@@ -32,6 +32,7 @@ internal class ReminderNotificationCoordinator(
 
 internal class UsageReminderNotifier(
     context: Context,
+    private val timingConfig: ReminderTimingConfig = DEFAULT_REMINDER_TIMING,
 ) : ReminderNotificationGateway {
     private val applicationContext = context.applicationContext
     private val notificationManager =
@@ -69,12 +70,49 @@ internal class UsageReminderNotifier(
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .addAction(
+                R.drawable.ic_notification,
+                applicationContext.getString(R.string.reminder_action_acknowledge),
+                ReminderNotificationActionContract.createPendingIntent(
+                    applicationContext,
+                    event,
+                    ReminderActionType.ACKNOWLEDGE,
+                ),
+            )
+            .addAction(
+                R.drawable.ic_notification,
+                applicationContext.getString(
+                    R.string.reminder_action_snooze,
+                    timingConfig.snoozeIntervalMillis.toWholeMinutes(),
+                ),
+                ReminderNotificationActionContract.createPendingIntent(
+                    applicationContext,
+                    event,
+                    ReminderActionType.SNOOZE,
+                ),
+            )
+            .addAction(
+                R.drawable.ic_notification,
+                applicationContext.getString(
+                    R.string.reminder_action_pause,
+                    timingConfig.pauseDurationMillis.toWholeMinutes(),
+                ),
+                ReminderNotificationActionContract.createPendingIntent(
+                    applicationContext,
+                    event,
+                    ReminderActionType.PAUSE,
+                ),
+            )
             .build()
 
         return runCatching {
             notificationManager.notify(REMINDER_NOTIFICATION_ID, notification)
             true
         }.getOrDefault(false)
+    }
+
+    fun dismiss() {
+        notificationManager.cancel(REMINDER_NOTIFICATION_ID)
     }
 
     private fun canPostReminderNotification(): Boolean {
@@ -116,3 +154,5 @@ internal class UsageReminderNotifier(
         const val MILLIS_PER_MINUTE = 60_000L
     }
 }
+
+private fun Long.toWholeMinutes(): Long = max(1L, this / 60_000L)

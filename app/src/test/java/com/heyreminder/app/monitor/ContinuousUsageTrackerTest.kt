@@ -8,7 +8,7 @@ import org.junit.Test
 
 class ContinuousUsageTrackerTest {
     private val tracker = ContinuousUsageTracker(
-        reminderThresholdMillis = TEN_MINUTES_MILLIS,
+        reminderIntervalMillis = TEN_MINUTES_MILLIS,
     )
     private val selectedPackages = setOf(CHROME_PACKAGE, TIKTOK_PACKAGE)
 
@@ -23,6 +23,7 @@ class ContinuousUsageTrackerTest {
 
         assertEquals(CHROME_PACKAGE, update.state.packageName)
         assertEquals(1_000L, update.state.startedAtElapsedMillis)
+        assertEquals(1_000L + TEN_MINUTES_MILLIS, update.state.nextReminderAtElapsedMillis)
         assertFalse(update.state.reminderConditionReached)
         assertNull(update.event)
     }
@@ -115,8 +116,82 @@ class ContinuousUsageTrackerTest {
 
         assertTrue(reached.state.reminderConditionReached)
         assertEquals(CHROME_PACKAGE, reached.event?.packageName)
+        assertEquals(1_000L, reached.event?.sessionStartedAtElapsedMillis)
+        assertEquals(
+            1_000L + TEN_MINUTES_MILLIS,
+            reached.event?.reminderDueAtElapsedMillis,
+        )
         assertEquals(TEN_MINUTES_MILLIS, reached.event?.continuousDurationMillis)
         assertNull(nextPoll.event)
+    }
+
+    @Test
+    fun `acknowledging a reminder schedules a full interval without ending the session`() {
+        val reached = reachReminder(CHROME_PACKAGE, sessionStart = 1_000L)
+
+        val restarted = tracker.scheduleNextReminder(
+            previousState = reached.state,
+            target = reached.event!!.toActionTarget(),
+            delayMillis = TEN_MINUTES_MILLIS,
+            nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS + 2_000L,
+        )
+
+        assertEquals(1_000L, restarted?.startedAtElapsedMillis)
+        assertEquals(
+            1_000L + TEN_MINUTES_MILLIS + 2_000L + TEN_MINUTES_MILLIS,
+            restarted?.nextReminderAtElapsedMillis,
+        )
+        assertFalse(restarted!!.reminderConditionReached)
+    }
+
+    @Test
+    fun `snoozing schedules the configured shorter interval`() {
+        val reached = reachReminder(CHROME_PACKAGE, sessionStart = 1_000L)
+
+        val snoozed = tracker.scheduleNextReminder(
+            previousState = reached.state,
+            target = reached.event!!.toActionTarget(),
+            delayMillis = FIVE_MINUTES_MILLIS,
+            nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS,
+        )!!
+        val beforeDue = tracker.update(
+            previousState = snoozed,
+            foregroundPackage = CHROME_PACKAGE,
+            selectedPackages = selectedPackages,
+            nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS + FIVE_MINUTES_MILLIS - 1L,
+        )
+        val atDue = tracker.update(
+            previousState = beforeDue.state,
+            foregroundPackage = CHROME_PACKAGE,
+            selectedPackages = selectedPackages,
+            nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS + FIVE_MINUTES_MILLIS,
+        )
+
+        assertNull(beforeDue.event)
+        assertEquals(
+            TEN_MINUTES_MILLIS + FIVE_MINUTES_MILLIS,
+            atDue.event?.continuousDurationMillis,
+        )
+    }
+
+    @Test
+    fun `stale or repeated notification action cannot change current state`() {
+        val reached = reachReminder(CHROME_PACKAGE, sessionStart = 1_000L)
+        val accepted = tracker.scheduleNextReminder(
+            previousState = reached.state,
+            target = reached.event!!.toActionTarget(),
+            delayMillis = FIVE_MINUTES_MILLIS,
+            nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS,
+        )!!
+
+        val repeated = tracker.scheduleNextReminder(
+            previousState = accepted,
+            target = reached.event!!.toActionTarget(),
+            delayMillis = FIVE_MINUTES_MILLIS,
+            nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS + 1_000L,
+        )
+
+        assertNull(repeated)
     }
 
     @Test
@@ -141,9 +216,29 @@ class ContinuousUsageTrackerTest {
         ).state
     }
 
+    private fun reachReminder(
+        packageName: String,
+        sessionStart: Long,
+    ): ContinuousUsageUpdate {
+        val started = startSession(packageName, sessionStart)
+        return tracker.update(
+            previousState = started,
+            foregroundPackage = packageName,
+            selectedPackages = selectedPackages,
+            nowElapsedMillis = sessionStart + TEN_MINUTES_MILLIS,
+        )
+    }
+
+    private fun ReminderConditionReachedEvent.toActionTarget() = ReminderActionTarget(
+        packageName = packageName,
+        sessionStartedAtElapsedMillis = sessionStartedAtElapsedMillis,
+        reminderDueAtElapsedMillis = reminderDueAtElapsedMillis,
+    )
+
     private companion object {
         const val CHROME_PACKAGE = "com.android.chrome"
         const val TIKTOK_PACKAGE = "com.example.tiktok"
         const val TEN_MINUTES_MILLIS = 10L * 60L * 1_000L
+        const val FIVE_MINUTES_MILLIS = 5L * 60L * 1_000L
     }
 }

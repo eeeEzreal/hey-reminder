@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import com.heyreminder.app.MainActivity
 import com.heyreminder.app.R
 import com.heyreminder.app.data.AppSelectionRepository
+import com.heyreminder.app.data.MonitoringPauseRepository
 import com.heyreminder.app.data.ReminderStatsRepository
 import com.heyreminder.app.data.UsageAccessRepository
 import kotlinx.coroutines.CoroutineScope
@@ -28,28 +29,38 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class UsageMonitorService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var appSelectionRepository: AppSelectionRepository
     private lateinit var usageAccessRepository: UsageAccessRepository
+    private lateinit var monitoringPauseRepository: MonitoringPauseRepository
     private lateinit var foregroundAppDetector: ForegroundAppDetector
     private lateinit var reminderCoordinator: ReminderNotificationCoordinator
-    private val usageTracker = ContinuousUsageTracker()
+    private lateinit var reminderNotifier: UsageReminderNotifier
+    private val timingConfig = DEFAULT_REMINDER_TIMING
+    private val usageTracker = ContinuousUsageTracker(timingConfig.reminderIntervalMillis)
+    private val reminderActionReducer = ReminderActionReducer(usageTracker, timingConfig)
+    private val stateMutex = Mutex()
 
     @Volatile
     private var selectedPackages: Set<String> = emptySet()
     private var monitorJob: Job? = null
     private var usageState = ContinuousUsageState()
+    private var pauseUntilEpochMillis = 0L
 
     override fun onCreate() {
         super.onCreate()
         appSelectionRepository = AppSelectionRepository(this)
         usageAccessRepository = UsageAccessRepository(this)
+        monitoringPauseRepository = MonitoringPauseRepository(this)
         foregroundAppDetector = UsageEventsForegroundAppDetector(this)
         val reminderStatsRepository = ReminderStatsRepository(this)
+        reminderNotifier = UsageReminderNotifier(this, timingConfig)
         reminderCoordinator = ReminderNotificationCoordinator(
-            notificationGateway = UsageReminderNotifier(this),
+            notificationGateway = reminderNotifier,
             recordTriggeredReminder = reminderStatsRepository::recordTriggeredReminder,
         )
         createNotificationChannel()
@@ -63,6 +74,15 @@ class UsageMonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ReminderNotificationActionContract.parse(intent)?.let { command ->
+            serviceScope.launch {
+                runCatching {
+                    handleReminderAction(command)
+                }.onFailure { error ->
+                    Log.e(TAG, "Unable to handle reminder action", error)
+                }
+            }
+        }
         if (monitorJob?.isActive != true) {
             monitorJob = serviceScope.launch {
                 monitorUsage()
@@ -73,6 +93,9 @@ class UsageMonitorService : Service() {
 
     override fun onDestroy() {
         monitorJob = null
+        if (::reminderNotifier.isInitialized) {
+            reminderNotifier.dismiss()
+        }
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -80,7 +103,14 @@ class UsageMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun monitorUsage() {
+        stateMutex.withLock {
+            pauseUntilEpochMillis = monitoringPauseRepository.currentPauseUntilEpochMillis()
+        }
         while (serviceScope.isActive) {
+            if (isMonitoringPaused()) {
+                delay(POLL_INTERVAL_MILLIS)
+                continue
+            }
             val foregroundPackage = if (usageAccessRepository.hasUsageAccess()) {
                 runCatching { foregroundAppDetector.currentForegroundPackage() }
                     .onFailure { error ->
@@ -93,14 +123,21 @@ class UsageMonitorService : Service() {
             val eligibleForegroundPackage = foregroundPackage?.takeUnless { packageName ->
                 packageName == this.packageName || packageName == SYSTEM_UI_PACKAGE
             }
-            val previousState = usageState
-            val update = usageTracker.update(
-                previousState = previousState,
-                foregroundPackage = eligibleForegroundPackage,
-                selectedPackages = selectedPackages,
-                nowElapsedMillis = SystemClock.elapsedRealtime(),
-            )
-            usageState = update.state
+            val (previousState, update) = stateMutex.withLock {
+                val previous = usageState
+                val currentUpdate = if (pauseUntilEpochMillis > System.currentTimeMillis()) {
+                    ContinuousUsageUpdate(state = ContinuousUsageState())
+                } else {
+                    usageTracker.update(
+                        previousState = previous,
+                        foregroundPackage = eligibleForegroundPackage,
+                        selectedPackages = selectedPackages,
+                        nowElapsedMillis = SystemClock.elapsedRealtime(),
+                    )
+                }
+                usageState = currentUpdate.state
+                previous to currentUpdate
+            }
             logStateTransition(previousState, update)
             update.event?.let { event ->
                 runCatching {
@@ -117,6 +154,44 @@ class UsageMonitorService : Service() {
             }
             delay(POLL_INTERVAL_MILLIS)
         }
+    }
+
+    private suspend fun isMonitoringPaused(): Boolean = stateMutex.withLock {
+        val nowEpochMillis = System.currentTimeMillis()
+        if (pauseUntilEpochMillis > nowEpochMillis) {
+            usageState = ContinuousUsageState()
+            return@withLock true
+        }
+        if (pauseUntilEpochMillis > 0L) {
+            pauseUntilEpochMillis = 0L
+            monitoringPauseRepository.clearPause()
+            Log.i(TAG, "monitoring_pause_ended")
+        }
+        false
+    }
+
+    private suspend fun handleReminderAction(command: ReminderActionCommand) {
+        reminderNotifier.dismiss()
+        val accepted = stateMutex.withLock {
+            val result = reminderActionReducer.reduce(
+                previousState = usageState,
+                action = command.action,
+                target = command.target,
+                nowElapsedMillis = SystemClock.elapsedRealtime(),
+                nowEpochMillis = System.currentTimeMillis(),
+            ) ?: return@withLock false
+            result.pauseUntilEpochMillis?.let { pauseUntil ->
+                pauseUntilEpochMillis = pauseUntil
+                monitoringPauseRepository.pauseUntil(pauseUntil)
+            }
+            usageState = result.usageState
+            true
+        }
+        Log.i(
+            TAG,
+            "reminder_action action=${command.action.name} accepted=$accepted " +
+                "package=${command.target.packageName}",
+        )
     }
 
     private fun logStateTransition(

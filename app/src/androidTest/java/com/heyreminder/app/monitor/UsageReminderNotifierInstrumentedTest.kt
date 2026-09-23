@@ -3,6 +3,7 @@ package com.heyreminder.app.monitor
 import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
+import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
@@ -28,6 +29,8 @@ class UsageReminderNotifierInstrumentedTest {
             val triggered = UsageReminderNotifier(context).show(
                 ReminderConditionReachedEvent(
                     packageName = context.packageName,
+                    sessionStartedAtElapsedMillis = 1_000L,
+                    reminderDueAtElapsedMillis = 601_000L,
                     continuousDurationMillis = 10L * 60L * 1_000L,
                 ),
             )
@@ -47,8 +50,62 @@ class UsageReminderNotifierInstrumentedTest {
                     ?.toString(),
             )
             assertEquals("usage_reminders", postedNotification?.notification?.channelId)
+            assertEquals(
+                listOf("收到", "再给我 5 分钟", "暂停 30 分钟"),
+                postedNotification?.notification?.actions?.map { action ->
+                    action.title.toString()
+                },
+            )
         } finally {
             notificationManager.cancelAll()
         }
+    }
+
+    @Test
+    fun eachReminderActionRoutesBackToTheMonitorServiceAndDismissesTheReminder() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        instrumentation.uiAutomation.grantRuntimePermission(
+            context.packageName,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+        val notificationManager = context.getSystemService(NotificationManager::class.java)
+        val notifier = UsageReminderNotifier(context)
+        val event = ReminderConditionReachedEvent(
+            packageName = context.packageName,
+            sessionStartedAtElapsedMillis = 1_000L,
+            reminderDueAtElapsedMillis = 601_000L,
+            continuousDurationMillis = 10L * 60L * 1_000L,
+        )
+
+        try {
+            repeat(3) { actionIndex ->
+                assertTrue(notifier.show(event))
+                val reminder = notificationManager.activeNotifications.first { notification ->
+                    notification.notification.channelId == "usage_reminders"
+                }
+
+                reminder.notification.actions[actionIndex].actionIntent.send()
+
+                assertTrue(
+                    waitUntil {
+                        notificationManager.activeNotifications.none { notification ->
+                            notification.notification.channelId == "usage_reminders"
+                        }
+                    },
+                )
+            }
+        } finally {
+            context.stopService(Intent(context, UsageMonitorService::class.java))
+            notificationManager.cancelAll()
+        }
+    }
+
+    private fun waitUntil(condition: () -> Boolean): Boolean {
+        repeat(20) {
+            if (condition()) return true
+            Thread.sleep(50L)
+        }
+        return false
     }
 }
