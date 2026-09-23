@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.heyreminder.app.MainActivity
@@ -56,23 +58,37 @@ internal class UsageReminderNotifier(
             Intent(applicationContext, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val title = applicationContext.getString(R.string.reminder_notification_title)
+        val message = applicationContext.getString(
+            R.string.reminder_notification_text,
+            appName,
+            durationMinutes,
+        )
+        val expandedMessage = applicationContext.getString(
+            R.string.reminder_notification_expanded_text,
+            appName,
+            durationMinutes,
+        )
         val notification = NotificationCompat.Builder(
             applicationContext,
             REMINDER_CHANNEL_ID,
         )
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(applicationContext.getString(R.string.reminder_notification_title))
-            .setContentText(
-                applicationContext.getString(
-                    R.string.reminder_notification_text,
-                    appName,
-                    durationMinutes,
-                ),
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .setBigContentTitle(title)
+                    .bigText(expandedMessage)
+                    .setSummaryText(appName),
             )
             .setContentIntent(openAppIntent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVibrate(REMINDER_VIBRATION_PATTERN)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(
                 R.drawable.ic_notification,
                 applicationContext.getString(R.string.reminder_action_acknowledge),
@@ -151,14 +167,24 @@ internal class UsageReminderNotifier(
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = applicationContext.getString(R.string.reminder_channel_description)
+            enableVibration(true)
+            vibrationPattern = REMINDER_VIBRATION_PATTERN
+            setSound(
+                Settings.System.DEFAULT_NOTIFICATION_URI,
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                    .build(),
+            )
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
         }
         notificationManager.createNotificationChannel(channel)
     }
 
     private companion object {
-        const val REMINDER_CHANNEL_ID = "usage_reminders"
+        const val REMINDER_CHANNEL_ID = "prominent_usage_reminders"
         const val REMINDER_NOTIFICATION_ID = 2001
         const val MILLIS_PER_MINUTE = 60_000L
+        val REMINDER_VIBRATION_PATTERN = longArrayOf(0L, 300L, 180L, 500L)
     }
 }
 

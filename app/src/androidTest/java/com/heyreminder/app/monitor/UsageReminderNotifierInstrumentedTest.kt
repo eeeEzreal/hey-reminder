@@ -41,7 +41,7 @@ class UsageReminderNotifierInstrumentedTest {
                 .firstOrNull { notification ->
                     notification.notification.extras
                         .getCharSequence(Notification.EXTRA_TITLE)
-                        ?.toString() == "Hey!"
+                        ?.toString() == "Hey! 该休息一下了"
                 }
             assertNotNull(postedNotification)
             assertEquals(
@@ -50,7 +50,23 @@ class UsageReminderNotifierInstrumentedTest {
                     ?.getCharSequence(Notification.EXTRA_TEXT)
                     ?.toString(),
             )
-            assertEquals("usage_reminders", postedNotification?.notification?.channelId)
+            assertEquals(
+                "prominent_usage_reminders",
+                postedNotification?.notification?.channelId,
+            )
+            assertEquals(
+                "你已经连续使用 Hey! 10 分钟了。放下手机，起来活动一下吧。",
+                postedNotification?.notification?.extras
+                    ?.getCharSequence(Notification.EXTRA_BIG_TEXT)
+                    ?.toString(),
+            )
+            assertEquals(Notification.CATEGORY_REMINDER, postedNotification?.notification?.category)
+            assertEquals(Notification.VISIBILITY_PUBLIC, postedNotification?.notification?.visibility)
+            val reminderChannel = notificationManager.getNotificationChannel(
+                "prominent_usage_reminders",
+            )
+            assertEquals(NotificationManager.IMPORTANCE_HIGH, reminderChannel.importance)
+            assertTrue(reminderChannel.shouldVibrate())
             assertEquals(
                 listOf("收到", "再给我 5 分钟", "暂停 30 分钟"),
                 postedNotification?.notification?.actions?.map { action ->
@@ -77,7 +93,7 @@ class UsageReminderNotifierInstrumentedTest {
             )
             val updatedNotification = notificationManager.activeNotifications
                 .first { notification ->
-                    notification.notification.channelId == "usage_reminders"
+                    notification.notification.channelId == "prominent_usage_reminders"
                 }
             assertEquals(
                 listOf("收到", "再给我 10 分钟", "暂停 60 分钟"),
@@ -111,7 +127,7 @@ class UsageReminderNotifierInstrumentedTest {
             repeat(3) { actionIndex ->
                 assertTrue(notifier.show(event))
                 val reminder = notificationManager.activeNotifications.first { notification ->
-                    notification.notification.channelId == "usage_reminders"
+                    notification.notification.channelId == "prominent_usage_reminders"
                 }
 
                 reminder.notification.actions[actionIndex].actionIntent.send()
@@ -119,7 +135,7 @@ class UsageReminderNotifierInstrumentedTest {
                 assertTrue(
                     waitUntil {
                         notificationManager.activeNotifications.none { notification ->
-                            notification.notification.channelId == "usage_reminders"
+                            notification.notification.channelId == "prominent_usage_reminders"
                         }
                     },
                 )
