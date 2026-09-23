@@ -14,7 +14,6 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringSetPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import java.io.IOException
 import java.text.Collator
 import java.util.Locale
@@ -24,12 +23,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
-private const val USER_PREFERENCES_STORE_NAME = "user_preferences"
 private const val APP_ICON_SIZE_PX = 96
-
-private val Context.userPreferencesDataStore by preferencesDataStore(
-    name = USER_PREFERENCES_STORE_NAME,
-)
 
 data class InstalledApp(
     val packageName: String,

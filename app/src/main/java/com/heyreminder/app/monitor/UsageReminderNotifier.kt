@@ -32,11 +32,14 @@ internal class ReminderNotificationCoordinator(
 
 internal class UsageReminderNotifier(
     context: Context,
-    private val timingConfig: ReminderTimingConfig = DEFAULT_REMINDER_TIMING,
+    timingConfig: ReminderTimingConfig = DEFAULT_REMINDER_TIMING,
 ) : ReminderNotificationGateway {
     private val applicationContext = context.applicationContext
     private val notificationManager =
         applicationContext.getSystemService(NotificationManager::class.java)
+
+    @Volatile
+    private var timingConfig = timingConfig
 
     init {
         createNotificationChannel()
@@ -113,6 +116,10 @@ internal class UsageReminderNotifier(
 
     fun dismiss() {
         notificationManager.cancel(REMINDER_NOTIFICATION_ID)
+    }
+
+    fun updateTimingConfig(timingConfig: ReminderTimingConfig) {
+        this.timingConfig = timingConfig
     }
 
     private fun canPostReminderNotification(): Boolean {

@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.heyreminder.app.data.AppSelectionRepository
 import com.heyreminder.app.data.InstalledApp
+import com.heyreminder.app.data.MonitoringMode
+import com.heyreminder.app.data.ReminderSettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +18,7 @@ data class AppSelectionUiState(
     val selectedPackages: Set<String> = emptySet(),
     val isLoading: Boolean = true,
     val loadFailed: Boolean = false,
+    val monitoringMode: MonitoringMode = MonitoringMode.BLACKLIST,
 ) {
     val selectedCount: Int
         get() = selectedPackages.size
@@ -23,6 +26,7 @@ data class AppSelectionUiState(
 
 class AppSelectionViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = AppSelectionRepository(application)
+    private val settingsRepository = ReminderSettingsRepository(application)
     private val _uiState = MutableStateFlow(AppSelectionUiState())
     val uiState: StateFlow<AppSelectionUiState> = _uiState.asStateFlow()
 
@@ -31,6 +35,13 @@ class AppSelectionViewModel(application: Application) : AndroidViewModel(applica
             repository.selectedPackages.collect { selectedPackages ->
                 _uiState.update { state ->
                     state.copy(selectedPackages = selectedPackages)
+                }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.settings.collect { settings ->
+                _uiState.update { state ->
+                    state.copy(monitoringMode = settings.monitoringMode)
                 }
             }
         }

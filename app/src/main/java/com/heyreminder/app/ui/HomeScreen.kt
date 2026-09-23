@@ -49,12 +49,21 @@ import com.heyreminder.app.data.UsageAccessRepository
 import com.heyreminder.app.monitor.UsageMonitorService
 import com.heyreminder.app.ui.theme.HeyReminderTheme
 
+private enum class HomeDestination {
+    HOME,
+    APP_SELECTION,
+    SETTINGS,
+}
+
 @Composable
 fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var isSelectingApps by rememberSaveable { mutableStateOf(false) }
+    var destination by rememberSaveable { mutableStateOf(HomeDestination.HOME) }
+    var appSelectionReturnDestination by rememberSaveable {
+        mutableStateOf(HomeDestination.HOME)
+    }
     val settingsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) {
@@ -81,9 +90,11 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
     LaunchedEffect(
         state.hasUsageAccess,
         state.hasNotificationPermission,
+        state.isReminderEnabled,
         state.monitoredAppCount,
     ) {
         if (
+            state.isReminderEnabled &&
             state.hasUsageAccess &&
             state.hasNotificationPermission &&
             state.monitoredAppCount > 0
@@ -94,8 +105,15 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
         }
     }
 
-    if (!state.hasUsageAccess) {
-        UsageAccessScreen(
+    when {
+        destination == HomeDestination.SETTINGS -> SettingsRoute(
+            onBack = { destination = HomeDestination.HOME },
+            onManageApps = {
+                appSelectionReturnDestination = HomeDestination.SETTINGS
+                destination = HomeDestination.APP_SELECTION
+            },
+        )
+        state.isReminderEnabled && !state.hasUsageAccess -> UsageAccessScreen(
             onOpenSettings = {
                 try {
                     settingsLauncher.launch(UsageAccessRepository.createSettingsIntent())
@@ -104,22 +122,28 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
                 }
             },
         )
-    } else if (!state.hasNotificationPermission) {
-        NotificationPermissionScreen(
-            onRequestPermission = {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                } else {
-                    viewModel.refreshUsageAccess()
-                }
-            },
+        state.isReminderEnabled && !state.hasNotificationPermission ->
+            NotificationPermissionScreen(
+                onRequestPermission = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        notificationPermissionLauncher.launch(
+                            Manifest.permission.POST_NOTIFICATIONS,
+                        )
+                    } else {
+                        viewModel.refreshUsageAccess()
+                    }
+                },
+            )
+        destination == HomeDestination.APP_SELECTION -> AppSelectionRoute(
+            onBack = { destination = appSelectionReturnDestination },
         )
-    } else if (isSelectingApps) {
-        AppSelectionRoute(onBack = { isSelectingApps = false })
-    } else {
-        HomeScreen(
+        else -> HomeScreen(
             state = state,
-            onManageApps = { isSelectingApps = true },
+            onManageApps = {
+                appSelectionReturnDestination = HomeDestination.HOME
+                destination = HomeDestination.APP_SELECTION
+            },
+            onOpenSettings = { destination = HomeDestination.SETTINGS },
         )
     }
 }
@@ -281,7 +305,6 @@ fun HomeScreen(
             }
             OutlinedButton(
                 onClick = onOpenSettings,
-                enabled = false,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp),

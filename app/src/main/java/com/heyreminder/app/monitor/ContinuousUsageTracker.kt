@@ -1,5 +1,7 @@
 package com.heyreminder.app.monitor
 
+import com.heyreminder.app.data.ReminderSettings
+
 data class ReminderTimingConfig(
     val reminderIntervalMillis: Long = 10L * 60L * 1_000L,
     val snoozeIntervalMillis: Long = 5L * 60L * 1_000L,
@@ -13,6 +15,12 @@ data class ReminderTimingConfig(
 }
 
 val DEFAULT_REMINDER_TIMING = ReminderTimingConfig()
+
+fun ReminderSettings.toReminderTimingConfig() = ReminderTimingConfig(
+    reminderIntervalMillis = reminderMinutes.toMilliseconds(),
+    snoozeIntervalMillis = snoozeMinutes.toMilliseconds(),
+    pauseDurationMillis = pauseMinutes.toMilliseconds(),
+)
 
 data class ContinuousUsageState(
     val packageName: String? = null,
@@ -54,10 +62,10 @@ class ContinuousUsageTracker(
     fun update(
         previousState: ContinuousUsageState,
         foregroundPackage: String?,
-        selectedPackages: Set<String>,
+        monitoredPackages: Set<String>,
         nowElapsedMillis: Long,
     ): ContinuousUsageUpdate {
-        val monitoredPackage = foregroundPackage?.takeIf(selectedPackages::contains)
+        val monitoredPackage = foregroundPackage?.takeIf(monitoredPackages::contains)
             ?: return ContinuousUsageUpdate(state = ContinuousUsageState())
 
         val sessionStart = previousState.startedAtElapsedMillis
@@ -120,3 +128,5 @@ class ContinuousUsageTracker(
             state.startedAtElapsedMillis == target.sessionStartedAtElapsedMillis &&
             state.nextReminderAtElapsedMillis == target.reminderDueAtElapsedMillis
 }
+
+private fun Int.toMilliseconds(): Long = this * 60L * 1_000L

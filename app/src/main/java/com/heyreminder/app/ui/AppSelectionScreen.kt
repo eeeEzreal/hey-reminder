@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.heyreminder.app.data.InstalledApp
+import com.heyreminder.app.data.MonitoringMode
 
 @Composable
 fun AppSelectionRoute(
@@ -69,10 +70,16 @@ fun AppSelectionScreen(
     ) {
         AppSelectionHeader(
             selectedCount = state.selectedCount,
+            monitoringMode = state.monitoringMode,
             onBack = onBack,
         )
         Text(
-            text = "选择需要监控的 App，选择结果会自动保存在本机。",
+            text = when (state.monitoringMode) {
+                MonitoringMode.BLACKLIST ->
+                    "选择需要监控的 App，选择结果会自动保存在本机。"
+                MonitoringMode.WHITELIST ->
+                    "选择不需要监控的 App，其他可启动 App 会被提醒。"
+            },
             modifier = Modifier.padding(horizontal = 24.dp),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -95,6 +102,7 @@ fun AppSelectionScreen(
 @Composable
 private fun AppSelectionHeader(
     selectedCount: Int,
+    monitoringMode: MonitoringMode,
     onBack: () -> Unit,
 ) {
     Row(
@@ -107,7 +115,10 @@ private fun AppSelectionHeader(
             Text("返回")
         }
         Text(
-            text = "选择 App",
+            text = when (monitoringMode) {
+                MonitoringMode.BLACKLIST -> "黑名单 App"
+                MonitoringMode.WHITELIST -> "白名单 App"
+            },
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,

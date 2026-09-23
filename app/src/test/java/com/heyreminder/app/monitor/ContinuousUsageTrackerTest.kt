@@ -17,7 +17,7 @@ class ContinuousUsageTrackerTest {
         val update = tracker.update(
             previousState = ContinuousUsageState(),
             foregroundPackage = CHROME_PACKAGE,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 1_000L,
         )
 
@@ -35,7 +35,7 @@ class ContinuousUsageTrackerTest {
         val update = tracker.update(
             previousState = started,
             foregroundPackage = CHROME_PACKAGE,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS - 1L,
         )
 
@@ -50,7 +50,7 @@ class ContinuousUsageTrackerTest {
         val update = tracker.update(
             previousState = started,
             foregroundPackage = null,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 5_000L,
         )
 
@@ -64,14 +64,14 @@ class ContinuousUsageTrackerTest {
         val left = tracker.update(
             previousState = started,
             foregroundPackage = "com.android.launcher3",
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 6_000L,
         ).state
 
         val reentered = tracker.update(
             previousState = left,
             foregroundPackage = CHROME_PACKAGE,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 10_000L,
         )
 
@@ -87,7 +87,7 @@ class ContinuousUsageTrackerTest {
         val update = tracker.update(
             previousState = chromeSession,
             foregroundPackage = TIKTOK_PACKAGE,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 9_000L,
         )
 
@@ -104,13 +104,13 @@ class ContinuousUsageTrackerTest {
         val reached = tracker.update(
             previousState = started,
             foregroundPackage = CHROME_PACKAGE,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS,
         )
         val nextPoll = tracker.update(
             previousState = reached.state,
             foregroundPackage = CHROME_PACKAGE,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS + 5_000L,
         )
 
@@ -157,13 +157,13 @@ class ContinuousUsageTrackerTest {
         val beforeDue = tracker.update(
             previousState = snoozed,
             foregroundPackage = CHROME_PACKAGE,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS + FIVE_MINUTES_MILLIS - 1L,
         )
         val atDue = tracker.update(
             previousState = beforeDue.state,
             foregroundPackage = CHROME_PACKAGE,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 1_000L + TEN_MINUTES_MILLIS + FIVE_MINUTES_MILLIS,
         )
 
@@ -199,7 +199,7 @@ class ContinuousUsageTrackerTest {
         val update = tracker.update(
             previousState = ContinuousUsageState(),
             foregroundPackage = "com.android.settings",
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = 1_000L,
         )
 
@@ -211,7 +211,7 @@ class ContinuousUsageTrackerTest {
         return tracker.update(
             previousState = ContinuousUsageState(),
             foregroundPackage = packageName,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = nowElapsedMillis,
         ).state
     }
@@ -224,7 +224,7 @@ class ContinuousUsageTrackerTest {
         return tracker.update(
             previousState = started,
             foregroundPackage = packageName,
-            selectedPackages = selectedPackages,
+            monitoredPackages = selectedPackages,
             nowElapsedMillis = sessionStart + TEN_MINUTES_MILLIS,
         )
     }

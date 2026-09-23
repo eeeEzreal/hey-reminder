@@ -19,7 +19,10 @@ import com.heyreminder.app.R
 import com.heyreminder.app.data.AppSelectionRepository
 import com.heyreminder.app.data.MonitoringPauseRepository
 import com.heyreminder.app.data.ReminderStatsRepository
+import com.heyreminder.app.data.ReminderSettings
+import com.heyreminder.app.data.ReminderSettingsRepository
 import com.heyreminder.app.data.UsageAccessRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,16 +40,20 @@ class UsageMonitorService : Service() {
     private lateinit var appSelectionRepository: AppSelectionRepository
     private lateinit var usageAccessRepository: UsageAccessRepository
     private lateinit var monitoringPauseRepository: MonitoringPauseRepository
+    private lateinit var reminderSettingsRepository: ReminderSettingsRepository
     private lateinit var foregroundAppDetector: ForegroundAppDetector
     private lateinit var reminderCoordinator: ReminderNotificationCoordinator
     private lateinit var reminderNotifier: UsageReminderNotifier
-    private val timingConfig = DEFAULT_REMINDER_TIMING
-    private val usageTracker = ContinuousUsageTracker(timingConfig.reminderIntervalMillis)
-    private val reminderActionReducer = ReminderActionReducer(usageTracker, timingConfig)
+    private var currentSettings = ReminderSettings()
+    private var timingConfig = currentSettings.toReminderTimingConfig()
+    private var usageTracker = ContinuousUsageTracker(timingConfig.reminderIntervalMillis)
+    private var reminderActionReducer = ReminderActionReducer(usageTracker, timingConfig)
     private val stateMutex = Mutex()
+    private val settingsReady = CompletableDeferred<Unit>()
 
-    @Volatile
     private var selectedPackages: Set<String> = emptySet()
+    private var launchablePackages: Set<String> = emptySet()
+    private var monitoredPackages: Set<String> = emptySet()
     private var monitorJob: Job? = null
     private var usageState = ContinuousUsageState()
     private var pauseUntilEpochMillis = 0L
@@ -56,6 +63,7 @@ class UsageMonitorService : Service() {
         appSelectionRepository = AppSelectionRepository(this)
         usageAccessRepository = UsageAccessRepository(this)
         monitoringPauseRepository = MonitoringPauseRepository(this)
+        reminderSettingsRepository = ReminderSettingsRepository(this)
         foregroundAppDetector = UsageEventsForegroundAppDetector(this)
         val reminderStatsRepository = ReminderStatsRepository(this)
         reminderNotifier = UsageReminderNotifier(this, timingConfig)
@@ -68,7 +76,30 @@ class UsageMonitorService : Service() {
 
         serviceScope.launch {
             appSelectionRepository.selectedPackages.collectLatest { packages ->
-                selectedPackages = packages
+                stateMutex.withLock {
+                    selectedPackages = packages
+                    updateMonitoredPackages()
+                }
+            }
+        }
+        serviceScope.launch {
+            val packages = runCatching { appSelectionRepository.loadInstalledApps() }
+                .onFailure { error -> Log.e(TAG, "Unable to load launchable apps", error) }
+                .getOrDefault(emptyList())
+                .map { app -> app.packageName }
+                .toSet()
+            stateMutex.withLock {
+                launchablePackages = packages
+                updateMonitoredPackages()
+            }
+        }
+        serviceScope.launch {
+            reminderSettingsRepository.settings.collectLatest { settings ->
+                applySettings(settings)
+                settingsReady.complete(Unit)
+                if (!settings.isReminderEnabled) {
+                    stopSelf()
+                }
             }
         }
     }
@@ -103,6 +134,7 @@ class UsageMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun monitorUsage() {
+        settingsReady.await()
         stateMutex.withLock {
             pauseUntilEpochMillis = monitoringPauseRepository.currentPauseUntilEpochMillis()
         }
@@ -131,7 +163,7 @@ class UsageMonitorService : Service() {
                     usageTracker.update(
                         previousState = previous,
                         foregroundPackage = eligibleForegroundPackage,
-                        selectedPackages = selectedPackages,
+                        monitoredPackages = monitoredPackages,
                         nowElapsedMillis = SystemClock.elapsedRealtime(),
                     )
                 }
@@ -154,6 +186,30 @@ class UsageMonitorService : Service() {
             }
             delay(POLL_INTERVAL_MILLIS)
         }
+    }
+
+    private suspend fun applySettings(settings: ReminderSettings) {
+        stateMutex.withLock {
+            if (currentSettings == settings) return@withLock
+
+            currentSettings = settings
+            timingConfig = settings.toReminderTimingConfig()
+            usageTracker = ContinuousUsageTracker(timingConfig.reminderIntervalMillis)
+            reminderActionReducer = ReminderActionReducer(usageTracker, timingConfig)
+            reminderNotifier.updateTimingConfig(timingConfig)
+            usageState = ContinuousUsageState()
+            reminderNotifier.dismiss()
+            updateMonitoredPackages()
+        }
+    }
+
+    private fun updateMonitoredPackages() {
+        monitoredPackages = MonitoredAppResolver.resolve(
+            monitoringMode = currentSettings.monitoringMode,
+            selectedPackages = selectedPackages,
+            launchablePackages = launchablePackages,
+        )
+        usageState = ContinuousUsageState()
     }
 
     private suspend fun isMonitoringPaused(): Boolean = stateMutex.withLock {

@@ -26,7 +26,8 @@ class UsageReminderNotifierInstrumentedTest {
         notificationManager.cancelAll()
 
         try {
-            val triggered = UsageReminderNotifier(context).show(
+            val notifier = UsageReminderNotifier(context)
+            val triggered = notifier.show(
                 ReminderConditionReachedEvent(
                     packageName = context.packageName,
                     sessionStartedAtElapsedMillis = 1_000L,
@@ -53,6 +54,34 @@ class UsageReminderNotifierInstrumentedTest {
             assertEquals(
                 listOf("收到", "再给我 5 分钟", "暂停 30 分钟"),
                 postedNotification?.notification?.actions?.map { action ->
+                    action.title.toString()
+                },
+            )
+
+            notifier.updateTimingConfig(
+                ReminderTimingConfig(
+                    reminderIntervalMillis = 20L * 60L * 1_000L,
+                    snoozeIntervalMillis = 10L * 60L * 1_000L,
+                    pauseDurationMillis = 60L * 60L * 1_000L,
+                ),
+            )
+            assertTrue(
+                notifier.show(
+                    ReminderConditionReachedEvent(
+                        packageName = context.packageName,
+                        sessionStartedAtElapsedMillis = 1_000L,
+                        reminderDueAtElapsedMillis = 1_201_000L,
+                        continuousDurationMillis = 20L * 60L * 1_000L,
+                    ),
+                ),
+            )
+            val updatedNotification = notificationManager.activeNotifications
+                .first { notification ->
+                    notification.notification.channelId == "usage_reminders"
+                }
+            assertEquals(
+                listOf("收到", "再给我 10 分钟", "暂停 60 分钟"),
+                updatedNotification.notification.actions.map { action ->
                     action.title.toString()
                 },
             )

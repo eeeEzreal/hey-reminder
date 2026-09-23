@@ -7,8 +7,12 @@ import com.heyreminder.app.data.AppSelectionRepository
 import com.heyreminder.app.data.DailyReminderCounts
 import com.heyreminder.app.data.NotificationPermissionRepository
 import com.heyreminder.app.data.MonitoringPauseRepository
+import com.heyreminder.app.data.MonitoringMode
+import com.heyreminder.app.data.ReminderSettings
+import com.heyreminder.app.data.ReminderSettingsRepository
 import com.heyreminder.app.data.ReminderStatsRepository
 import com.heyreminder.app.data.UsageAccessRepository
+import com.heyreminder.app.monitor.MonitoredAppResolver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,7 +45,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val notificationPermissionRepository = NotificationPermissionRepository(application)
     private val monitoringPauseRepository = MonitoringPauseRepository(application)
     private val appSelectionRepository = AppSelectionRepository(application)
+    private val reminderSettingsRepository = ReminderSettingsRepository(application)
     private var dailyReminderCounts = DailyReminderCounts()
+    private var currentSettings = ReminderSettings()
+    private var selectedPackages: Set<String> = emptySet()
+    private var launchablePackages: Set<String> = emptySet()
     private val _uiState = MutableStateFlow(
         HomeUiState(
             hasUsageAccess = usageAccessRepository.hasUsageAccess(),
@@ -59,10 +67,22 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
-            appSelectionRepository.selectedPackages.collect { selectedPackages ->
-                _uiState.update { state ->
-                    state.copy(monitoredAppCount = selectedPackages.size)
-                }
+            appSelectionRepository.selectedPackages.collect { packages ->
+                selectedPackages = packages
+                refreshSettingsSummary()
+            }
+        }
+        viewModelScope.launch {
+            launchablePackages = runCatching { appSelectionRepository.loadInstalledApps() }
+                .getOrDefault(emptyList())
+                .map { app -> app.packageName }
+                .toSet()
+            refreshSettingsSummary()
+        }
+        viewModelScope.launch {
+            reminderSettingsRepository.settings.collect { settings ->
+                currentSettings = settings
+                refreshSettingsSummary()
             }
         }
         viewModelScope.launch {
@@ -91,6 +111,25 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { state ->
             state.copy(
                 todayReminderCount = dailyReminderCounts[reminderStatsRepository.currentDate()],
+            )
+        }
+    }
+
+    private fun refreshSettingsSummary() {
+        val monitoredPackages = MonitoredAppResolver.resolve(
+            monitoringMode = currentSettings.monitoringMode,
+            selectedPackages = selectedPackages,
+            launchablePackages = launchablePackages,
+        )
+        _uiState.update { state ->
+            state.copy(
+                isReminderEnabled = currentSettings.isReminderEnabled,
+                modeLabel = when (currentSettings.monitoringMode) {
+                    MonitoringMode.BLACKLIST -> "黑名单"
+                    MonitoringMode.WHITELIST -> "白名单"
+                },
+                monitoredAppCount = monitoredPackages.size,
+                reminderMinutes = currentSettings.reminderMinutes,
             )
         }
     }
