@@ -13,4 +13,4 @@ $env:ANDROID_USER_HOME="$PWD\.android"
 .\gradlew.bat :app:assembleDebug
 ```
 
-技术决策和已知风险见 [`docs/TECHNICAL_PLAN.md`](docs/TECHNICAL_PLAN.md)。
+技术决策和已知风险见 [`docs/TECHNICAL_PLAN.md`](docs/TECHNICAL_PLAN.md)，重要产品演进及其原因见 [`docs/product-evolution.md`](docs/product-evolution.md)。
