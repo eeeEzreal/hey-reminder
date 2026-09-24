@@ -15,6 +15,40 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class UsageReminderNotifierInstrumentedTest {
     @Test
+    fun testReminderProvidesImmediateEndToEndNotificationCheck() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        instrumentation.uiAutomation.grantRuntimePermission(
+            context.packageName,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+        val notificationManager = context.getSystemService(NotificationManager::class.java)
+        notificationManager.cancelAll()
+
+        try {
+            assertTrue(UsageReminderNotifier(context).showTestReminder())
+            val testReminder = waitForNotification(notificationManager) { notification ->
+                notification.extras
+                    .getCharSequence(Notification.EXTRA_TITLE)
+                    ?.toString() == "Hey! 测试提醒"
+            }
+            assertNotNull(testReminder)
+            assertEquals(
+                "通知链路正常。达到设定时长后，你会收到这样的醒目提醒。",
+                testReminder?.notification?.extras
+                    ?.getCharSequence(Notification.EXTRA_TEXT)
+                    ?.toString(),
+            )
+            assertEquals(
+                "prominent_usage_reminders",
+                testReminder?.notification?.channelId,
+            )
+        } finally {
+            notificationManager.cancelAll()
+        }
+    }
+
+    @Test
     fun postsExpectedReminderToAndroidNotificationCenter() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -37,12 +71,11 @@ class UsageReminderNotifierInstrumentedTest {
             )
 
             assertTrue(triggered)
-            val postedNotification = notificationManager.activeNotifications
-                .firstOrNull { notification ->
-                    notification.notification.extras
-                        .getCharSequence(Notification.EXTRA_TITLE)
-                        ?.toString() == "Hey! 该休息一下了"
-                }
+            val postedNotification = waitForNotification(notificationManager) { notification ->
+                notification.extras
+                    .getCharSequence(Notification.EXTRA_TITLE)
+                    ?.toString() == "Hey! 该休息一下了"
+            }
             assertNotNull(postedNotification)
             assertEquals(
                 "你已经连续使用 Hey! 10 分钟了。",
@@ -91,10 +124,13 @@ class UsageReminderNotifierInstrumentedTest {
                     ),
                 ),
             )
-            val updatedNotification = notificationManager.activeNotifications
-                .first { notification ->
-                    notification.notification.channelId == "prominent_usage_reminders"
-                }
+            val updatedNotification = requireNotNull(
+                waitForNotification(notificationManager) { notification ->
+                    notification.extras
+                        .getCharSequence(Notification.EXTRA_TITLE)
+                        ?.toString() == "Hey! 该休息一下了"
+                },
+            )
             assertEquals(
                 listOf("收到", "再给我 10 分钟", "暂停 60 分钟"),
                 updatedNotification.notification.actions.map { action ->
@@ -126,11 +162,20 @@ class UsageReminderNotifierInstrumentedTest {
         try {
             repeat(3) { actionIndex ->
                 assertTrue(notifier.show(event))
-                val reminder = notificationManager.activeNotifications.first { notification ->
-                    notification.notification.channelId == "prominent_usage_reminders"
-                }
+                var reminder: android.service.notification.StatusBarNotification? = null
+                assertTrue(
+                    waitUntil {
+                        reminder = notificationManager.activeNotifications.firstOrNull {
+                                notification ->
+                            notification.notification.channelId ==
+                                "prominent_usage_reminders"
+                        }
+                        reminder != null
+                    },
+                )
+                val postedReminder = requireNotNull(reminder)
 
-                reminder.notification.actions[actionIndex].actionIntent.send()
+                postedReminder.notification.actions[actionIndex].actionIntent.send()
 
                 assertTrue(
                     waitUntil {
@@ -152,5 +197,20 @@ class UsageReminderNotifierInstrumentedTest {
             Thread.sleep(50L)
         }
         return false
+    }
+
+    private fun waitForNotification(
+        notificationManager: NotificationManager,
+        predicate: (Notification) -> Boolean,
+    ): android.service.notification.StatusBarNotification? {
+        var postedNotification: android.service.notification.StatusBarNotification? = null
+        waitUntil {
+            postedNotification = notificationManager.activeNotifications.firstOrNull {
+                    notification ->
+                predicate(notification.notification)
+            }
+            postedNotification != null
+        }
+        return postedNotification
     }
 }

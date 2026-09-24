@@ -47,6 +47,7 @@ fun SettingsRoute(
     BackHandler(onBack = onBack)
     SettingsScreen(
         settings = state.settings,
+        testReminderResult = state.testReminderResult,
         onBack = onBack,
         onManageApps = onManageApps,
         onReminderEnabledChange = viewModel::setReminderEnabled,
@@ -54,12 +55,14 @@ fun SettingsRoute(
         onReminderMinutesChange = viewModel::setReminderMinutes,
         onSnoozeMinutesChange = viewModel::setSnoozeMinutes,
         onPauseMinutesChange = viewModel::setPauseMinutes,
+        onSendTestReminder = viewModel::sendTestReminder,
     )
 }
 
 @Composable
 fun SettingsScreen(
     settings: ReminderSettings,
+    testReminderResult: TestReminderResult?,
     onBack: () -> Unit,
     onManageApps: () -> Unit,
     onReminderEnabledChange: (Boolean) -> Unit,
@@ -67,6 +70,7 @@ fun SettingsScreen(
     onReminderMinutesChange: (Int) -> Unit,
     onSnoozeMinutesChange: (Int) -> Unit,
     onPauseMinutesChange: (Int) -> Unit,
+    onSendTestReminder: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -81,6 +85,31 @@ fun SettingsScreen(
             enabled = settings.isReminderEnabled,
             onEnabledChange = onReminderEnabledChange,
         )
+        OutlinedButton(
+            onClick = onSendTestReminder,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Text("立即测试提醒")
+        }
+        testReminderResult?.let { result ->
+            Text(
+                text = when (result) {
+                    TestReminderResult.SENT -> "测试提醒已发送，请检查屏幕顶部和通知栏。"
+                    TestReminderResult.UNAVAILABLE ->
+                        "测试提醒发送失败，请返回首页检查通知权限和提醒渠道。"
+                },
+                modifier = Modifier.padding(top = 8.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (result == TestReminderResult.SENT) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+        }
         SettingsSectionTitle("监控模式")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             FilterChip(
@@ -96,9 +125,9 @@ fun SettingsScreen(
         }
         Text(
             text = if (settings.monitoringMode == MonitoringMode.BLACKLIST) {
-                "只监控名单中的 App。"
-            } else {
                 "名单中的 App 不监控，其他可启动 App 会被监控。"
+            } else {
+                "只监控名单中的 App。"
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

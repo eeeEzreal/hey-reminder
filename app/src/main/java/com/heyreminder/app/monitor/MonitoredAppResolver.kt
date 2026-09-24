@@ -8,7 +8,7 @@ object MonitoredAppResolver {
         selectedPackages: Set<String>,
         launchablePackages: Set<String>,
     ): Set<String> = when (monitoringMode) {
-        MonitoringMode.BLACKLIST -> launchablePackages.intersect(selectedPackages)
-        MonitoringMode.WHITELIST -> launchablePackages - selectedPackages
+        MonitoringMode.BLACKLIST -> launchablePackages - selectedPackages
+        MonitoringMode.WHITELIST -> launchablePackages.intersect(selectedPackages)
     }
 }

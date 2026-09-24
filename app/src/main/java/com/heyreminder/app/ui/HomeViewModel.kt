@@ -23,6 +23,7 @@ data class HomeUiState(
     val isReminderEnabled: Boolean = true,
     val hasUsageAccess: Boolean = false,
     val hasNotificationPermission: Boolean = false,
+    val needsNotificationRuntimePermission: Boolean = false,
     val isTemporarilyPaused: Boolean = false,
     val todayReminderCount: Int = 0,
     val modeLabel: String = "黑名单",
@@ -34,8 +35,9 @@ data class HomeUiState(
             !isReminderEnabled -> "已关闭"
             !hasUsageAccess -> "等待授权"
             !hasNotificationPermission -> "等待通知权限"
+            monitoredAppCount == 0 -> "没有监控 App"
             isTemporarilyPaused -> "已暂停"
-            else -> "准备就绪"
+            else -> "监控运行中"
         }
 }
 
@@ -55,6 +57,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             hasUsageAccess = usageAccessRepository.hasUsageAccess(),
             hasNotificationPermission =
                 notificationPermissionRepository.hasNotificationPermission(),
+            needsNotificationRuntimePermission =
+                !notificationPermissionRepository.hasRuntimePermission(),
         ),
     )
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -102,6 +106,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 hasUsageAccess = usageAccessRepository.hasUsageAccess(),
                 hasNotificationPermission =
                     notificationPermissionRepository.hasNotificationPermission(),
+                needsNotificationRuntimePermission =
+                    !notificationPermissionRepository.hasRuntimePermission(),
                 todayReminderCount = dailyReminderCounts[reminderStatsRepository.currentDate()],
             )
         }

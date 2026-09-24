@@ -10,9 +10,22 @@ class HomeUiStateTest {
     }
 
     @Test
-    fun `enabled reminder is ready when usage access is granted`() {
+    fun `enabled reminder reports active monitoring when everything is ready`() {
         assertEquals(
-            "准备就绪",
+            "监控运行中",
+            HomeUiState(
+                isReminderEnabled = true,
+                hasUsageAccess = true,
+                hasNotificationPermission = true,
+                monitoredAppCount = 1,
+            ).statusLabel,
+        )
+    }
+
+    @Test
+    fun `zero monitored apps is never reported as ready`() {
+        assertEquals(
+            "没有监控 App",
             HomeUiState(
                 isReminderEnabled = true,
                 hasUsageAccess = true,
@@ -54,6 +67,7 @@ class HomeUiStateTest {
                 hasUsageAccess = true,
                 hasNotificationPermission = true,
                 isTemporarilyPaused = true,
+                monitoredAppCount = 1,
             ).statusLabel,
         )
     }

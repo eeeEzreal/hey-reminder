@@ -76,9 +76,9 @@ fun AppSelectionScreen(
         Text(
             text = when (state.monitoringMode) {
                 MonitoringMode.BLACKLIST ->
-                    "选择需要监控的 App，选择结果会自动保存在本机。"
-                MonitoringMode.WHITELIST ->
                     "选择不需要监控的 App，其他可启动 App 会被提醒。"
+                MonitoringMode.WHITELIST ->
+                    "选择需要监控的 App，选择结果会自动保存在本机。"
             },
             modifier = Modifier.padding(horizontal = 24.dp),
             style = MaterialTheme.typography.bodyMedium,

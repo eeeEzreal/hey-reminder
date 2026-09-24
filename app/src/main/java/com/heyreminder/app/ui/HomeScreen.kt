@@ -45,6 +45,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.heyreminder.app.data.NotificationPermissionRepository
 import com.heyreminder.app.data.UsageAccessRepository
 import com.heyreminder.app.monitor.UsageMonitorService
 import com.heyreminder.app.ui.theme.HeyReminderTheme
@@ -124,13 +125,20 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
         )
         state.isReminderEnabled && !state.hasNotificationPermission ->
             NotificationPermissionScreen(
+                needsRuntimePermission = state.needsNotificationRuntimePermission,
                 onRequestPermission = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (
+                        state.needsNotificationRuntimePermission &&
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                    ) {
                         notificationPermissionLauncher.launch(
                             Manifest.permission.POST_NOTIFICATIONS,
                         )
                     } else {
-                        viewModel.refreshUsageAccess()
+                        settingsLauncher.launch(
+                            NotificationPermissionRepository(context)
+                                .createNotificationSettingsIntent(),
+                        )
                     }
                 },
             )
@@ -150,6 +158,7 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
 
 @Composable
 fun NotificationPermissionScreen(
+    needsRuntimePermission: Boolean,
     onRequestPermission: () -> Unit,
 ) {
     Column(
@@ -162,12 +171,20 @@ fun NotificationPermissionScreen(
             BrandMark()
             Spacer(modifier = Modifier.height(32.dp))
             Text(
-                text = "需要通知权限",
+                text = if (needsRuntimePermission) {
+                    "需要通知权限"
+                } else {
+                    "醒目提醒被系统关闭"
+                },
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "Hey! 只会在连续使用达到提醒时间时发送通知。没有这项权限，就无法及时提醒你。",
+                text = if (needsRuntimePermission) {
+                    "Hey! 只会在连续使用达到提醒时间时发送通知。没有这项权限，就无法及时提醒你。"
+                } else {
+                    "请在系统设置中把“醒目连续使用提醒”设为允许，并开启弹出、声音和震动。"
+                },
                 modifier = Modifier.padding(top = 16.dp),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -181,7 +198,7 @@ fun NotificationPermissionScreen(
                 .height(54.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
-            Text("允许通知")
+            Text(if (needsRuntimePermission) "允许通知" else "打开通知设置")
         }
     }
 }
@@ -398,6 +415,9 @@ private fun UsageAccessScreenPreview() {
 @Composable
 private fun NotificationPermissionScreenPreview() {
     HeyReminderTheme {
-        NotificationPermissionScreen(onRequestPermission = {})
+        NotificationPermissionScreen(
+            needsRuntimePermission = true,
+            onRequestPermission = {},
+        )
     }
 }

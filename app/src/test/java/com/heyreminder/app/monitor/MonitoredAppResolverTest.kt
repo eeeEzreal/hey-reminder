@@ -9,9 +9,9 @@ class MonitoredAppResolverTest {
     private val selectedPackages = setOf("social", "uninstalled")
 
     @Test
-    fun `blacklist monitors only selected launchable apps`() {
+    fun `blacklist excludes selected apps and monitors the rest`() {
         assertEquals(
-            setOf("social"),
+            setOf("video", "browser"),
             MonitoredAppResolver.resolve(
                 monitoringMode = MonitoringMode.BLACKLIST,
                 selectedPackages = selectedPackages,
@@ -21,12 +21,24 @@ class MonitoredAppResolverTest {
     }
 
     @Test
-    fun `whitelist excludes selected apps and ignores stale selections`() {
+    fun `whitelist monitors only selected launchable apps`() {
         assertEquals(
-            setOf("video", "browser"),
+            setOf("social"),
             MonitoredAppResolver.resolve(
                 monitoringMode = MonitoringMode.WHITELIST,
                 selectedPackages = selectedPackages,
+                launchablePackages = launchablePackages,
+            ),
+        )
+    }
+
+    @Test
+    fun `empty default blacklist monitors every launchable app`() {
+        assertEquals(
+            launchablePackages,
+            MonitoredAppResolver.resolve(
+                monitoringMode = MonitoringMode.BLACKLIST,
+                selectedPackages = emptySet(),
                 launchablePackages = launchablePackages,
             ),
         )

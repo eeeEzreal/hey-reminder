@@ -70,7 +70,7 @@ class AppSelectionRepository internal constructor(
         }
     }
 
-    private companion object {
+    internal companion object {
         val SelectedPackagesKey = stringSetPreferencesKey("selected_packages")
     }
 }

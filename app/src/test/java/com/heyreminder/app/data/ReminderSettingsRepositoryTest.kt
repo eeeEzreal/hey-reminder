@@ -56,6 +56,39 @@ class ReminderSettingsRepositoryTest {
         assertEquals(ReminderSettings(), ReminderSettingsRepository(dataStore).settings.first())
     }
 
+    @Test
+    fun `legacy selected-only blacklist migrates to corrected whitelist`() = runBlocking {
+        val dataStore = InMemoryPreferencesDataStore(
+            initialPreferences = androidx.datastore.preferences.core.preferencesOf(
+                ReminderSettingsRepository.MonitoringModeKey to MonitoringMode.BLACKLIST.name,
+                AppSelectionRepository.SelectedPackagesKey to setOf("social"),
+            ),
+        )
+
+        val settings = ReminderSettingsRepository(dataStore).settings.first()
+
+        assertEquals(MonitoringMode.WHITELIST, settings.monitoringMode)
+        assertEquals(
+            ReminderSettingsRepository.CURRENT_MONITORING_MODE_VERSION,
+            dataStore.data.first()[ReminderSettingsRepository.MonitoringModeSemanticsVersionKey],
+        )
+    }
+
+    @Test
+    fun `legacy exclusion whitelist migrates to corrected blacklist`() = runBlocking {
+        val dataStore = InMemoryPreferencesDataStore(
+            initialPreferences = androidx.datastore.preferences.core.preferencesOf(
+                ReminderSettingsRepository.MonitoringModeKey to MonitoringMode.WHITELIST.name,
+                AppSelectionRepository.SelectedPackagesKey to setOf("social"),
+            ),
+        )
+
+        assertEquals(
+            MonitoringMode.BLACKLIST,
+            ReminderSettingsRepository(dataStore).settings.first().monitoringMode,
+        )
+    }
+
     private fun createRepository() = ReminderSettingsRepository(InMemoryPreferencesDataStore())
 
     private class InMemoryPreferencesDataStore(

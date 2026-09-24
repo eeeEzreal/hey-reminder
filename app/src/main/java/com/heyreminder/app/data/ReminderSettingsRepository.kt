@@ -11,6 +11,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 
 enum class MonitoringMode {
@@ -31,15 +33,20 @@ class ReminderSettingsRepository internal constructor(
 ) {
     constructor(context: Context) : this(context.applicationContext.userPreferencesDataStore)
 
-    val settings: Flow<ReminderSettings> = dataStore.data
-        .catch { exception ->
-            if (exception is IOException) {
-                emit(emptyPreferences())
-            } else {
-                throw exception
-            }
-        }
-        .map(::toReminderSettings)
+    val settings: Flow<ReminderSettings> = flow {
+        migrateLegacyMonitoringMode()
+        emitAll(
+            dataStore.data
+                .catch { exception ->
+                    if (exception is IOException) {
+                        emit(emptyPreferences())
+                    } else {
+                        throw exception
+                    }
+                }
+                .map(::toReminderSettings),
+        )
+    }
 
     suspend fun setReminderEnabled(enabled: Boolean) {
         dataStore.edit { preferences ->
@@ -50,6 +57,7 @@ class ReminderSettingsRepository internal constructor(
     suspend fun setMonitoringMode(mode: MonitoringMode) {
         dataStore.edit { preferences ->
             preferences[MonitoringModeKey] = mode.name
+            preferences[MonitoringModeSemanticsVersionKey] = CURRENT_MONITORING_MODE_VERSION
         }
     }
 
@@ -75,12 +83,48 @@ class ReminderSettingsRepository internal constructor(
         }
     }
 
+    private suspend fun migrateLegacyMonitoringMode() {
+        dataStore.edit { preferences ->
+            if (
+                preferences[MonitoringModeSemanticsVersionKey] ==
+                CURRENT_MONITORING_MODE_VERSION
+            ) {
+                return@edit
+            }
+
+            val selectedPackages = preferences[AppSelectionRepository.SelectedPackagesKey]
+                .orEmpty()
+            val legacyMode = preferences[MonitoringModeKey]
+                ?.let { storedMode ->
+                    MonitoringMode.entries.firstOrNull { mode -> mode.name == storedMode }
+                }
+                ?: MonitoringMode.BLACKLIST
+            val correctedMode = when (legacyMode) {
+                // The old implementation used BLACKLIST to mean "only these apps".
+                // Keep existing non-empty selections monitored after correcting the labels.
+                MonitoringMode.BLACKLIST -> if (selectedPackages.isEmpty()) {
+                    MonitoringMode.BLACKLIST
+                } else {
+                    MonitoringMode.WHITELIST
+                }
+
+                // The old implementation used WHITELIST to mean "all except these apps".
+                MonitoringMode.WHITELIST -> MonitoringMode.BLACKLIST
+            }
+            preferences[MonitoringModeKey] = correctedMode.name
+            preferences[MonitoringModeSemanticsVersionKey] = CURRENT_MONITORING_MODE_VERSION
+        }
+    }
+
     companion object {
         internal val ReminderEnabledKey = booleanPreferencesKey("reminder_enabled")
         internal val MonitoringModeKey = stringPreferencesKey("monitoring_mode")
+        internal val MonitoringModeSemanticsVersionKey =
+            intPreferencesKey("monitoring_mode_semantics_version")
         internal val ReminderMinutesKey = intPreferencesKey("reminder_minutes")
         internal val SnoozeMinutesKey = intPreferencesKey("snooze_minutes")
         internal val PauseMinutesKey = intPreferencesKey("pause_minutes")
+        internal const val CURRENT_MONITORING_MODE_VERSION = 2
     }
 }
 

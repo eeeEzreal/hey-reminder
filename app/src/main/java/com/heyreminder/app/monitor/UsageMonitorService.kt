@@ -180,8 +180,12 @@ class UsageMonitorService : Service() {
                         "reminder_notification_triggered package=${event.packageName} " +
                             "success=$notificationTriggered",
                     )
+                    if (!notificationTriggered) {
+                        scheduleReminderDeliveryRetry(event)
+                    }
                 }.onFailure { error ->
                     Log.e(TAG, "Unable to deliver or record reminder notification", error)
+                    scheduleReminderDeliveryRetry(event)
                 }
             }
             delay(POLL_INTERVAL_MILLIS)
@@ -248,6 +252,30 @@ class UsageMonitorService : Service() {
             "reminder_action action=${command.action.name} accepted=$accepted " +
                 "package=${command.target.packageName}",
         )
+    }
+
+    private suspend fun scheduleReminderDeliveryRetry(event: ReminderConditionReachedEvent) {
+        val rescheduled = stateMutex.withLock {
+            usageTracker.scheduleNextReminder(
+                previousState = usageState,
+                target = ReminderActionTarget(
+                    packageName = event.packageName,
+                    sessionStartedAtElapsedMillis = event.sessionStartedAtElapsedMillis,
+                    reminderDueAtElapsedMillis = event.reminderDueAtElapsedMillis,
+                ),
+                delayMillis = REMINDER_DELIVERY_RETRY_MILLIS,
+                nowElapsedMillis = SystemClock.elapsedRealtime(),
+            )?.also { retryState ->
+                usageState = retryState
+            }
+        }
+        if (rescheduled != null) {
+            Log.w(
+                TAG,
+                "reminder_delivery_retry_scheduled package=${event.packageName} " +
+                    "delay_ms=$REMINDER_DELIVERY_RETRY_MILLIS",
+            )
+        }
     }
 
     private fun logStateTransition(
@@ -320,6 +348,7 @@ class UsageMonitorService : Service() {
         private const val MONITOR_CHANNEL_ID = "usage_monitor"
         private const val MONITOR_NOTIFICATION_ID = 1001
         private const val POLL_INTERVAL_MILLIS = 1_000L
+        private const val REMINDER_DELIVERY_RETRY_MILLIS = 30_000L
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 
         fun start(context: Context) {
