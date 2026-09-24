@@ -40,7 +40,7 @@ class UsageReminderNotifierInstrumentedTest {
                     ?.toString(),
             )
             assertEquals(
-                "prominent_usage_reminders",
+                "visual_reminder_fallback_v2",
                 testReminder?.notification?.channelId,
             )
         } finally {
@@ -84,7 +84,7 @@ class UsageReminderNotifierInstrumentedTest {
                     ?.toString(),
             )
             assertEquals(
-                "prominent_usage_reminders",
+                "visual_reminder_fallback_v2",
                 postedNotification?.notification?.channelId,
             )
             assertEquals(
@@ -96,10 +96,11 @@ class UsageReminderNotifierInstrumentedTest {
             assertEquals(Notification.CATEGORY_REMINDER, postedNotification?.notification?.category)
             assertEquals(Notification.VISIBILITY_PUBLIC, postedNotification?.notification?.visibility)
             val reminderChannel = notificationManager.getNotificationChannel(
-                "prominent_usage_reminders",
+                "visual_reminder_fallback_v2",
             )
             assertEquals(NotificationManager.IMPORTANCE_HIGH, reminderChannel.importance)
             assertTrue(reminderChannel.shouldVibrate())
+            assertEquals(null, reminderChannel.sound)
             assertEquals(
                 listOf("收到", "再给我 5 分钟", "暂停 30 分钟"),
                 postedNotification?.notification?.actions?.map { action ->
@@ -128,7 +129,9 @@ class UsageReminderNotifierInstrumentedTest {
                 waitForNotification(notificationManager) { notification ->
                     notification.extras
                         .getCharSequence(Notification.EXTRA_TITLE)
-                        ?.toString() == "Hey! 该休息一下了"
+                        ?.toString() == "Hey! 该休息一下了" &&
+                        notification.actions?.getOrNull(1)?.title?.toString() ==
+                        "再给我 10 分钟"
                 },
             )
             assertEquals(
@@ -143,7 +146,7 @@ class UsageReminderNotifierInstrumentedTest {
     }
 
     @Test
-    fun eachReminderActionRoutesBackToTheMonitorServiceAndDismissesTheReminder() {
+    fun staleReminderActionDoesNotDismissAnUnrelatedReminder() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         instrumentation.uiAutomation.grantRuntimePermission(
@@ -168,7 +171,7 @@ class UsageReminderNotifierInstrumentedTest {
                         reminder = notificationManager.activeNotifications.firstOrNull {
                                 notification ->
                             notification.notification.channelId ==
-                                "prominent_usage_reminders"
+                                "visual_reminder_fallback_v2"
                         }
                         reminder != null
                     },
@@ -178,12 +181,11 @@ class UsageReminderNotifierInstrumentedTest {
                 postedReminder.notification.actions[actionIndex].actionIntent.send()
 
                 assertTrue(
-                    waitUntil {
-                        notificationManager.activeNotifications.none { notification ->
-                            notification.notification.channelId == "prominent_usage_reminders"
-                        }
+                    notificationManager.activeNotifications.any { notification ->
+                        notification.notification.channelId == "visual_reminder_fallback_v2"
                     },
                 )
+                notifier.dismiss()
             }
         } finally {
             context.stopService(Intent(context, UsageMonitorService::class.java))

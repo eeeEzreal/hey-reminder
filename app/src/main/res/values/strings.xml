@@ -6,11 +6,13 @@
     <string name="monitor_notification_title">Hey! 正在监控</string>
     <string name="monitor_notification_text">正在计算所选 App 的连续使用时间</string>
     <string name="monitor_special_use_subtype">持续检测用户所选 App 的前台使用情况并计算连续使用时间</string>
-    <string name="reminder_channel_name">醒目连续使用提醒</string>
-    <string name="reminder_channel_description">连续使用达到设定时间时，通过横幅、声音和震动醒目提醒</string>
+    <string name="reminder_channel_name">强视觉提醒记录</string>
+    <string name="reminder_channel_description">强视觉提醒的系统记录；Overlay 不可用时作为无声备用提醒</string>
     <string name="reminder_notification_title">Hey! 该休息一下了</string>
     <string name="reminder_notification_text">你已经连续使用 %1$s %2$d 分钟了。</string>
     <string name="reminder_notification_expanded_text">你已经连续使用 %1$s %2$d 分钟了。放下手机，起来活动一下吧。</string>
+    <string name="reminder_notification_escalated_title">Hey! 你还在继续使用</string>
+    <string name="reminder_notification_escalated_text">你已忽略第一次提醒，连续使用 %1$s %2$d 分钟。</string>
     <string name="test_reminder_notification_title">Hey! 测试提醒</string>
     <string name="test_reminder_notification_text">通知链路正常。达到设定时长后，你会收到这样的醒目提醒。</string>
     <string name="reminder_action_acknowledge">收到</string>

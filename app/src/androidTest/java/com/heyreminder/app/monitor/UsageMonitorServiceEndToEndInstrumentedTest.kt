@@ -4,7 +4,7 @@ import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Intent
-import android.provider.Settings
+import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.heyreminder.app.data.AppSelectionRepository
@@ -13,6 +13,7 @@ import com.heyreminder.app.data.ReminderSettingsRepository
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -30,9 +31,12 @@ class UsageMonitorServiceEndToEndInstrumentedTest {
             context.packageName,
             Manifest.permission.POST_NOTIFICATIONS,
         )
-        instrumentation.uiAutomation.executeShellCommand(
+        ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
             "appops set ${context.packageName} GET_USAGE_STATS allow",
-        ).close()
+        )).use { stream -> stream.readBytes() }
+        ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
+            "appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow",
+        )).use { stream -> stream.readBytes() }
         settingsRepository.setMonitoringMode(MonitoringMode.BLACKLIST)
         appSelectionRepository.selectedPackages.first().forEach { packageName ->
             appSelectionRepository.setPackageSelected(packageName, false)
@@ -51,14 +55,32 @@ class UsageMonitorServiceEndToEndInstrumentedTest {
                 },
             ) { "monitor foreground service did not start" }
 
-            context.startActivity(
-                Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
+            val externalAppIntent = requireNotNull(
+                context.packageManager.getLaunchIntentForPackage(EXTERNAL_APP_PACKAGE),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(externalAppIntent)
 
             val reminder = waitForReminder(notificationManager)
             assertNotNull(
                 "real monitor service did not post a reminder after one continuous minute",
                 reminder,
+            )
+            assertTrue(
+                "real monitor service did not show an overlay above Chrome",
+                OverlayReminderPresenter.isAnyOverlayVisible,
+            )
+            Thread.sleep(1_500L)
+            ParcelFileDescriptor.AutoCloseInputStream(
+                instrumentation.uiAutomation.executeShellCommand(
+                    "screencap -p /sdcard/Download/hey-phase9-overlay-api35.png",
+                ),
+            ).use { stream -> stream.readBytes() }
+            requireNotNull(reminder).notification.actions[0].actionIntent.send()
+            assertTrue(
+                "overlay did not disappear after acknowledge",
+                waitUntil(timeoutMillis = 5_000L) {
+                    !OverlayReminderPresenter.isAnyOverlayVisible
+                },
             )
         } finally {
             UsageMonitorService.stop(context)
@@ -104,5 +126,6 @@ class UsageMonitorServiceEndToEndInstrumentedTest {
     private companion object {
         const val MONITOR_NOTIFICATION_ID = 1001
         const val REMINDER_NOTIFICATION_ID = 2001
+        const val EXTERNAL_APP_PACKAGE = "com.android.chrome"
     }
 }

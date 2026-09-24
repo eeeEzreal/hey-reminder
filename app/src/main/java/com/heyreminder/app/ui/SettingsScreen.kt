@@ -1,6 +1,8 @@
 package com.heyreminder.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -27,10 +29,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.heyreminder.app.data.MonitoringMode
+import com.heyreminder.app.data.OverlayPermissionRepository
 import com.heyreminder.app.data.ReminderSettings
 
 private val REMINDER_MINUTE_OPTIONS = listOf(5, 10, 15, 20, 30)
@@ -44,6 +48,10 @@ fun SettingsRoute(
     viewModel: SettingsViewModel = viewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val overlayPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) {}
     BackHandler(onBack = onBack)
     SettingsScreen(
         settings = state.settings,
@@ -55,7 +63,16 @@ fun SettingsRoute(
         onReminderMinutesChange = viewModel::setReminderMinutes,
         onSnoozeMinutesChange = viewModel::setSnoozeMinutes,
         onPauseMinutesChange = viewModel::setPauseMinutes,
-        onSendTestReminder = viewModel::sendTestReminder,
+        onSendTestReminder = {
+            if (
+                viewModel.showTestStrongReminder() ==
+                TestReminderResult.NEEDS_OVERLAY_PERMISSION
+            ) {
+                overlayPermissionLauncher.launch(
+                    OverlayPermissionRepository(context).createSettingsIntent(),
+                )
+            }
+        },
     )
 }
 
@@ -92,18 +109,19 @@ fun SettingsScreen(
                 .padding(top = 12.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
-            Text("立即测试提醒")
+            Text("测试强提醒")
         }
         testReminderResult?.let { result ->
             Text(
                 text = when (result) {
-                    TestReminderResult.SENT -> "测试提醒已发送，请检查屏幕顶部和通知栏。"
-                    TestReminderResult.UNAVAILABLE ->
-                        "测试提醒发送失败，请返回首页检查通知权限和提醒渠道。"
+                    TestReminderResult.SHOWN -> "强提醒已显示，点击任一操作即可关闭。"
+                    TestReminderResult.NEEDS_OVERLAY_PERMISSION ->
+                        "请先允许 Hey! 显示在其他应用上层，然后再次测试。"
+                    TestReminderResult.FAILED -> "强提醒显示失败，请重新授权后再试。"
                 },
                 modifier = Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (result == TestReminderResult.SENT) {
+                color = if (result == TestReminderResult.SHOWN) {
                     MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.error

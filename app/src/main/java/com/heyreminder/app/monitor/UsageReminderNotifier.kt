@@ -7,9 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioAttributes
 import android.os.Build
-import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.heyreminder.app.MainActivity
@@ -17,26 +15,10 @@ import com.heyreminder.app.R
 import com.heyreminder.app.data.REMINDER_NOTIFICATION_CHANNEL_ID
 import kotlin.math.max
 
-internal fun interface ReminderNotificationGateway {
-    fun show(event: ReminderConditionReachedEvent): Boolean
-}
-
-internal class ReminderNotificationCoordinator(
-    private val notificationGateway: ReminderNotificationGateway,
-    private val recordTriggeredReminder: suspend () -> Unit,
-) {
-    suspend fun onReminderConditionReached(event: ReminderConditionReachedEvent): Boolean {
-        if (!notificationGateway.show(event)) return false
-
-        recordTriggeredReminder()
-        return true
-    }
-}
-
 internal class UsageReminderNotifier(
     context: Context,
     timingConfig: ReminderTimingConfig = DEFAULT_REMINDER_TIMING,
-) : ReminderNotificationGateway {
+) {
     private val applicationContext = context.applicationContext
     private val notificationManager =
         applicationContext.getSystemService(NotificationManager::class.java)
@@ -48,15 +30,32 @@ internal class UsageReminderNotifier(
         createNotificationChannel()
     }
 
-    override fun show(event: ReminderConditionReachedEvent): Boolean {
+    fun show(event: ReminderConditionReachedEvent): Boolean {
+        return show(event, ReminderVisualLevel.FIRST)
+    }
+
+    fun show(
+        event: ReminderConditionReachedEvent,
+        level: ReminderVisualLevel,
+    ): Boolean {
         if (!canPostReminderNotification()) return false
 
         val appName = resolveAppName(event.packageName)
         val durationMinutes = max(1L, event.continuousDurationMillis / MILLIS_PER_MINUTE)
         val openAppIntent = createOpenAppIntent(REMINDER_NOTIFICATION_ID)
-        val title = applicationContext.getString(R.string.reminder_notification_title)
+        val title = applicationContext.getString(
+            if (level == ReminderVisualLevel.ESCALATED) {
+                R.string.reminder_notification_escalated_title
+            } else {
+                R.string.reminder_notification_title
+            },
+        )
         val message = applicationContext.getString(
-            R.string.reminder_notification_text,
+            if (level == ReminderVisualLevel.ESCALATED) {
+                R.string.reminder_notification_escalated_text
+            } else {
+                R.string.reminder_notification_text
+            },
             appName,
             durationMinutes,
         )
@@ -82,7 +81,6 @@ internal class UsageReminderNotifier(
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setVibrate(REMINDER_VIBRATION_PATTERN)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(
@@ -140,7 +138,6 @@ internal class UsageReminderNotifier(
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setVibrate(REMINDER_VIBRATION_PATTERN)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
@@ -204,12 +201,7 @@ internal class UsageReminderNotifier(
             description = applicationContext.getString(R.string.reminder_channel_description)
             enableVibration(true)
             vibrationPattern = REMINDER_VIBRATION_PATTERN
-            setSound(
-                Settings.System.DEFAULT_NOTIFICATION_URI,
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
-                    .build(),
-            )
+            setSound(null, null)
             lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
         }
         notificationManager.createNotificationChannel(channel)

@@ -46,6 +46,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.heyreminder.app.data.NotificationPermissionRepository
+import com.heyreminder.app.data.OverlayPermissionRepository
 import com.heyreminder.app.data.UsageAccessRepository
 import com.heyreminder.app.monitor.UsageMonitorService
 import com.heyreminder.app.ui.theme.HeyReminderTheme
@@ -91,6 +92,7 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
     LaunchedEffect(
         state.hasUsageAccess,
         state.hasNotificationPermission,
+        state.hasOverlayPermission,
         state.isReminderEnabled,
         state.monitoredAppCount,
     ) {
@@ -142,6 +144,13 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
                     }
                 },
             )
+        state.isReminderEnabled && !state.hasOverlayPermission -> OverlayPermissionScreen(
+            onOpenSettings = {
+                settingsLauncher.launch(
+                    OverlayPermissionRepository(context).createSettingsIntent(),
+                )
+            },
+        )
         destination == HomeDestination.APP_SELECTION -> AppSelectionRoute(
             onBack = { destination = appSelectionReturnDestination },
         )
@@ -153,6 +162,43 @@ fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
             },
             onOpenSettings = { destination = HomeDestination.SETTINGS },
         )
+    }
+}
+
+@Composable
+fun OverlayPermissionScreen(onOpenSettings: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 48.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column {
+            BrandMark()
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "强提醒权限未开启",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "允许 Hey! 显示在其他应用上层，连续使用到时会直接出现大尺寸提醒，不需要查看通知栏。",
+                modifier = Modifier.padding(top = 16.dp),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(28.dp))
+            PermissionDetailsCard()
+        }
+        Button(
+            onClick = onOpenSettings,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Text("开启强提醒")
+        }
     }
 }
 
@@ -419,5 +465,13 @@ private fun NotificationPermissionScreenPreview() {
             needsRuntimePermission = true,
             onRequestPermission = {},
         )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun OverlayPermissionScreenPreview() {
+    HeyReminderTheme {
+        OverlayPermissionScreen(onOpenSettings = {})
     }
 }

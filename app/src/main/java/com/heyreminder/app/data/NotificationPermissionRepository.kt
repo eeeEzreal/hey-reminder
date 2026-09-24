@@ -9,7 +9,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 
-internal const val REMINDER_NOTIFICATION_CHANNEL_ID = "prominent_usage_reminders"
+internal const val REMINDER_NOTIFICATION_CHANNEL_ID = "visual_reminder_fallback_v2"
 
 class NotificationPermissionRepository(context: Context) {
     private val applicationContext = context.applicationContext

@@ -17,6 +17,7 @@ class HomeUiStateTest {
                 isReminderEnabled = true,
                 hasUsageAccess = true,
                 hasNotificationPermission = true,
+                hasOverlayPermission = true,
                 monitoredAppCount = 1,
             ).statusLabel,
         )
@@ -30,6 +31,7 @@ class HomeUiStateTest {
                 isReminderEnabled = true,
                 hasUsageAccess = true,
                 hasNotificationPermission = true,
+                hasOverlayPermission = true,
             ).statusLabel,
         )
     }
@@ -39,6 +41,19 @@ class HomeUiStateTest {
         assertEquals(
             "等待通知权限",
             HomeUiState(isReminderEnabled = true, hasUsageAccess = true).statusLabel,
+        )
+    }
+
+    @Test
+    fun `missing overlay permission is never reported as ready`() {
+        assertEquals(
+            "强提醒权限未开启",
+            HomeUiState(
+                isReminderEnabled = true,
+                hasUsageAccess = true,
+                hasNotificationPermission = true,
+                monitoredAppCount = 1,
+            ).statusLabel,
         )
     }
 
@@ -55,6 +70,7 @@ class HomeUiStateTest {
                 isReminderEnabled = false,
                 hasUsageAccess = true,
                 hasNotificationPermission = true,
+                hasOverlayPermission = true,
             ).statusLabel,
         )
     }
@@ -66,6 +82,7 @@ class HomeUiStateTest {
             HomeUiState(
                 hasUsageAccess = true,
                 hasNotificationPermission = true,
+                hasOverlayPermission = true,
                 isTemporarilyPaused = true,
                 monitoredAppCount = 1,
             ).statusLabel,

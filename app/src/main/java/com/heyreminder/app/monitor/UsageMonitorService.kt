@@ -42,12 +42,14 @@ class UsageMonitorService : Service() {
     private lateinit var monitoringPauseRepository: MonitoringPauseRepository
     private lateinit var reminderSettingsRepository: ReminderSettingsRepository
     private lateinit var foregroundAppDetector: ForegroundAppDetector
-    private lateinit var reminderCoordinator: ReminderNotificationCoordinator
+    private lateinit var reminderStatsRepository: ReminderStatsRepository
     private lateinit var reminderNotifier: UsageReminderNotifier
+    private lateinit var reminderPresentationCoordinator: ReminderPresentationCoordinator
     private var currentSettings = ReminderSettings()
     private var timingConfig = currentSettings.toReminderTimingConfig()
     private var usageTracker = ContinuousUsageTracker(timingConfig.reminderIntervalMillis)
     private var reminderActionReducer = ReminderActionReducer(usageTracker, timingConfig)
+    private var reminderEngine = ReminderEngine()
     private val stateMutex = Mutex()
     private val settingsReady = CompletableDeferred<Unit>()
 
@@ -65,21 +67,22 @@ class UsageMonitorService : Service() {
         monitoringPauseRepository = MonitoringPauseRepository(this)
         reminderSettingsRepository = ReminderSettingsRepository(this)
         foregroundAppDetector = UsageEventsForegroundAppDetector(this)
-        val reminderStatsRepository = ReminderStatsRepository(this)
+        reminderStatsRepository = ReminderStatsRepository(this)
         reminderNotifier = UsageReminderNotifier(this, timingConfig)
-        reminderCoordinator = ReminderNotificationCoordinator(
-            notificationGateway = reminderNotifier,
-            recordTriggeredReminder = reminderStatsRepository::recordTriggeredReminder,
+        reminderPresentationCoordinator = ReminderPresentationCoordinator(
+            overlayPresenter = OverlayReminderPresenter(this),
+            notificationPresenter = reminderNotifier,
         )
         createNotificationChannel()
         startAsForegroundService()
 
         serviceScope.launch {
             appSelectionRepository.selectedPackages.collectLatest { packages ->
-                stateMutex.withLock {
+                val shouldDismiss = stateMutex.withLock {
                     selectedPackages = packages
-                    updateMonitoredPackages()
+                    updateMonitoredPackages() != null
                 }
+                if (shouldDismiss) reminderPresentationCoordinator.dismiss()
             }
         }
         serviceScope.launch {
@@ -88,10 +91,11 @@ class UsageMonitorService : Service() {
                 .getOrDefault(emptyList())
                 .map { app -> app.packageName }
                 .toSet()
-            stateMutex.withLock {
+            val shouldDismiss = stateMutex.withLock {
                 launchablePackages = packages
-                updateMonitoredPackages()
+                updateMonitoredPackages() != null
             }
+            if (shouldDismiss) reminderPresentationCoordinator.dismiss()
         }
         serviceScope.launch {
             reminderSettingsRepository.settings.collectLatest { settings ->
@@ -124,8 +128,8 @@ class UsageMonitorService : Service() {
 
     override fun onDestroy() {
         monitorJob = null
-        if (::reminderNotifier.isInitialized) {
-            reminderNotifier.dismiss()
+        if (::reminderPresentationCoordinator.isInitialized) {
+            reminderPresentationCoordinator.dismiss()
         }
         serviceScope.cancel()
         super.onDestroy()
@@ -140,6 +144,7 @@ class UsageMonitorService : Service() {
         }
         while (serviceScope.isActive) {
             if (isMonitoringPaused()) {
+                endReminderSession()
                 delay(POLL_INTERVAL_MILLIS)
                 continue
             }
@@ -155,7 +160,8 @@ class UsageMonitorService : Service() {
             val eligibleForegroundPackage = foregroundPackage?.takeUnless { packageName ->
                 packageName == this.packageName || packageName == SYSTEM_UI_PACKAGE
             }
-            val (previousState, update) = stateMutex.withLock {
+            val nowElapsedMillis = SystemClock.elapsedRealtime()
+            val (previousState, update, reminderEffect) = stateMutex.withLock {
                 val previous = usageState
                 val currentUpdate = if (pauseUntilEpochMillis > System.currentTimeMillis()) {
                     ContinuousUsageUpdate(state = ContinuousUsageState())
@@ -164,56 +170,47 @@ class UsageMonitorService : Service() {
                         previousState = previous,
                         foregroundPackage = eligibleForegroundPackage,
                         monitoredPackages = monitoredPackages,
-                        nowElapsedMillis = SystemClock.elapsedRealtime(),
+                        nowElapsedMillis = nowElapsedMillis,
                     )
                 }
                 usageState = currentUpdate.state
-                previous to currentUpdate
+                val effect = currentUpdate.event?.let { event ->
+                    reminderEngine.onReminderDue(event, nowElapsedMillis)
+                } ?: reminderEngine.onTick(currentUpdate.state, nowElapsedMillis)
+                Triple(previous, currentUpdate, effect)
             }
             logStateTransition(previousState, update)
-            update.event?.let { event ->
-                runCatching {
-                    reminderCoordinator.onReminderConditionReached(event)
-                }.onSuccess { notificationTriggered ->
-                    Log.i(
-                        TAG,
-                        "reminder_notification_triggered package=${event.packageName} " +
-                            "success=$notificationTriggered",
-                    )
-                    if (!notificationTriggered) {
-                        scheduleReminderDeliveryRetry(event)
-                    }
-                }.onFailure { error ->
-                    Log.e(TAG, "Unable to deliver or record reminder notification", error)
-                    scheduleReminderDeliveryRetry(event)
-                }
-            }
+            reminderEffect?.let { processReminderEffect(it) }
             delay(POLL_INTERVAL_MILLIS)
         }
     }
 
     private suspend fun applySettings(settings: ReminderSettings) {
-        stateMutex.withLock {
-            if (currentSettings == settings) return@withLock
-
-            currentSettings = settings
-            timingConfig = settings.toReminderTimingConfig()
-            usageTracker = ContinuousUsageTracker(timingConfig.reminderIntervalMillis)
-            reminderActionReducer = ReminderActionReducer(usageTracker, timingConfig)
-            reminderNotifier.updateTimingConfig(timingConfig)
-            usageState = ContinuousUsageState()
-            reminderNotifier.dismiss()
-            updateMonitoredPackages()
+        val changed = stateMutex.withLock {
+            if (currentSettings == settings) {
+                false
+            } else {
+                currentSettings = settings
+                timingConfig = settings.toReminderTimingConfig()
+                usageTracker = ContinuousUsageTracker(timingConfig.reminderIntervalMillis)
+                reminderActionReducer = ReminderActionReducer(usageTracker, timingConfig)
+                reminderNotifier.updateTimingConfig(timingConfig)
+                usageState = ContinuousUsageState()
+                updateMonitoredPackages()
+                true
+            }
         }
+        if (changed) reminderPresentationCoordinator.dismiss()
     }
 
-    private fun updateMonitoredPackages() {
+    private fun updateMonitoredPackages(): ReminderEngineEffect? {
         monitoredPackages = MonitoredAppResolver.resolve(
             monitoringMode = currentSettings.monitoringMode,
             selectedPackages = selectedPackages,
             launchablePackages = launchablePackages,
         )
         usageState = ContinuousUsageState()
+        return reminderEngine.reset()
     }
 
     private suspend fun isMonitoringPaused(): Boolean = stateMutex.withLock {
@@ -231,7 +228,6 @@ class UsageMonitorService : Service() {
     }
 
     private suspend fun handleReminderAction(command: ReminderActionCommand) {
-        reminderNotifier.dismiss()
         val accepted = stateMutex.withLock {
             val result = reminderActionReducer.reduce(
                 previousState = usageState,
@@ -240,6 +236,7 @@ class UsageMonitorService : Service() {
                 nowElapsedMillis = SystemClock.elapsedRealtime(),
                 nowEpochMillis = System.currentTimeMillis(),
             ) ?: return@withLock false
+            reminderEngine.onAction(command) ?: return@withLock false
             result.pauseUntilEpochMillis?.let { pauseUntil ->
                 pauseUntilEpochMillis = pauseUntil
                 monitoringPauseRepository.pauseUntil(pauseUntil)
@@ -247,6 +244,7 @@ class UsageMonitorService : Service() {
             usageState = result.usageState
             true
         }
+        if (accepted) reminderPresentationCoordinator.dismiss()
         Log.i(
             TAG,
             "reminder_action action=${command.action.name} accepted=$accepted " +
@@ -254,28 +252,63 @@ class UsageMonitorService : Service() {
         )
     }
 
-    private suspend fun scheduleReminderDeliveryRetry(event: ReminderConditionReachedEvent) {
-        val rescheduled = stateMutex.withLock {
-            usageTracker.scheduleNextReminder(
-                previousState = usageState,
-                target = ReminderActionTarget(
-                    packageName = event.packageName,
-                    sessionStartedAtElapsedMillis = event.sessionStartedAtElapsedMillis,
-                    reminderDueAtElapsedMillis = event.reminderDueAtElapsedMillis,
-                ),
-                delayMillis = REMINDER_DELIVERY_RETRY_MILLIS,
-                nowElapsedMillis = SystemClock.elapsedRealtime(),
-            )?.also { retryState ->
-                usageState = retryState
+    private suspend fun processReminderEffect(effect: ReminderEngineEffect) {
+        when (effect) {
+            ReminderEngineEffect.DismissReminder -> reminderPresentationCoordinator.dismiss()
+            is ReminderEngineEffect.ShowReminder -> {
+                val result = reminderPresentationCoordinator.show(
+                    event = effect.event,
+                    level = effect.level,
+                    settings = currentSettings,
+                    onAction = { command ->
+                        serviceScope.launch {
+                            runCatching { handleReminderAction(command) }
+                                .onFailure { error ->
+                                    Log.e(TAG, "Unable to handle overlay action", error)
+                                }
+                        }
+                    },
+                )
+                val target = effect.event.toActionTarget()
+                val shouldRecord = stateMutex.withLock {
+                    reminderEngine.onPresentationResult(
+                        target = target,
+                        level = effect.level,
+                        wasPresented = result.wasPresented,
+                        nowElapsedMillis = SystemClock.elapsedRealtime(),
+                    )
+                    result.wasPresented &&
+                        effect.shouldRecordTriggeredReminder &&
+                        reminderEngine.state.event?.toActionTarget() == target &&
+                        !reminderEngine.state.triggeredReminderRecorded
+                }
+                if (shouldRecord) {
+                    runCatching { reminderStatsRepository.recordTriggeredReminder() }
+                        .onSuccess {
+                            stateMutex.withLock {
+                                reminderEngine.markTriggeredReminderRecorded(target)
+                            }
+                        }
+                        .onFailure { error ->
+                            Log.e(TAG, "Unable to record presented reminder", error)
+                        }
+                }
+                Log.i(
+                    TAG,
+                    "reminder_presented package=${effect.event.packageName} " +
+                        "level=${effect.level} overlay=${result.overlayShown} " +
+                        "notification=${result.notificationShown}",
+                )
             }
         }
-        if (rescheduled != null) {
-            Log.w(
-                TAG,
-                "reminder_delivery_retry_scheduled package=${event.packageName} " +
-                    "delay_ms=$REMINDER_DELIVERY_RETRY_MILLIS",
-            )
+    }
+
+    private suspend fun endReminderSession() {
+        val shouldDismiss = stateMutex.withLock {
+            usageState = ContinuousUsageState()
+            reminderEngine.reset() != null
         }
+        if (shouldDismiss) reminderPresentationCoordinator.dismiss()
     }
 
     private fun logStateTransition(
@@ -348,7 +381,6 @@ class UsageMonitorService : Service() {
         private const val MONITOR_CHANNEL_ID = "usage_monitor"
         private const val MONITOR_NOTIFICATION_ID = 1001
         private const val POLL_INTERVAL_MILLIS = 1_000L
-        private const val REMINDER_DELIVERY_RETRY_MILLIS = 30_000L
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 
         fun start(context: Context) {

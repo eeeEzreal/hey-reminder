@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.heyreminder.app.data.AppSelectionRepository
 import com.heyreminder.app.data.DailyReminderCounts
 import com.heyreminder.app.data.NotificationPermissionRepository
+import com.heyreminder.app.data.OverlayPermissionRepository
 import com.heyreminder.app.data.MonitoringPauseRepository
 import com.heyreminder.app.data.MonitoringMode
 import com.heyreminder.app.data.ReminderSettings
@@ -23,6 +24,7 @@ data class HomeUiState(
     val isReminderEnabled: Boolean = true,
     val hasUsageAccess: Boolean = false,
     val hasNotificationPermission: Boolean = false,
+    val hasOverlayPermission: Boolean = false,
     val needsNotificationRuntimePermission: Boolean = false,
     val isTemporarilyPaused: Boolean = false,
     val todayReminderCount: Int = 0,
@@ -35,6 +37,7 @@ data class HomeUiState(
             !isReminderEnabled -> "已关闭"
             !hasUsageAccess -> "等待授权"
             !hasNotificationPermission -> "等待通知权限"
+            !hasOverlayPermission -> "强提醒权限未开启"
             monitoredAppCount == 0 -> "没有监控 App"
             isTemporarilyPaused -> "已暂停"
             else -> "监控运行中"
@@ -45,6 +48,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val usageAccessRepository = UsageAccessRepository(application)
     private val reminderStatsRepository = ReminderStatsRepository(application)
     private val notificationPermissionRepository = NotificationPermissionRepository(application)
+    private val overlayPermissionRepository = OverlayPermissionRepository(application)
     private val monitoringPauseRepository = MonitoringPauseRepository(application)
     private val appSelectionRepository = AppSelectionRepository(application)
     private val reminderSettingsRepository = ReminderSettingsRepository(application)
@@ -57,6 +61,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             hasUsageAccess = usageAccessRepository.hasUsageAccess(),
             hasNotificationPermission =
                 notificationPermissionRepository.hasNotificationPermission(),
+            hasOverlayPermission = overlayPermissionRepository.hasOverlayPermission(),
             needsNotificationRuntimePermission =
                 !notificationPermissionRepository.hasRuntimePermission(),
         ),
@@ -106,6 +111,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 hasUsageAccess = usageAccessRepository.hasUsageAccess(),
                 hasNotificationPermission =
                     notificationPermissionRepository.hasNotificationPermission(),
+                hasOverlayPermission = overlayPermissionRepository.hasOverlayPermission(),
                 needsNotificationRuntimePermission =
                     !notificationPermissionRepository.hasRuntimePermission(),
                 todayReminderCount = dailyReminderCounts[reminderStatsRepository.currentDate()],
