@@ -42,6 +42,7 @@ class UsageMonitorServiceEndToEndInstrumentedTest {
             appSelectionRepository.setPackageSelected(packageName, false)
         }
         settingsRepository.setReminderMinutes(1)
+        settingsRepository.setDebug30SecondReminderEnabled(true)
         settingsRepository.setReminderEnabled(true)
         notificationManager.cancelAll()
 
@@ -62,7 +63,7 @@ class UsageMonitorServiceEndToEndInstrumentedTest {
 
             val reminder = waitForReminder(notificationManager)
             assertNotNull(
-                "real monitor service did not post a reminder after one continuous minute",
+                "real monitor service did not post a reminder after thirty continuous seconds",
                 reminder,
             )
             assertTrue(
@@ -91,6 +92,7 @@ class UsageMonitorServiceEndToEndInstrumentedTest {
             }
             Thread.sleep(250L)
             notificationManager.cancelAll()
+            settingsRepository.setDebug30SecondReminderEnabled(false)
             settingsRepository.setReminderMinutes(10)
         }
     }
@@ -99,7 +101,7 @@ class UsageMonitorServiceEndToEndInstrumentedTest {
         notificationManager: NotificationManager,
     ): android.service.notification.StatusBarNotification? {
         var reminder: android.service.notification.StatusBarNotification? = null
-        waitUntil(timeoutMillis = 75_000L) {
+        waitUntil(timeoutMillis = 45_000L) {
             reminder = notificationManager.activeNotifications.firstOrNull { notification ->
                 notification.id == REMINDER_NOTIFICATION_ID &&
                     notification.notification.extras

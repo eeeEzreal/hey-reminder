@@ -16,8 +16,14 @@ data class ReminderTimingConfig(
 
 val DEFAULT_REMINDER_TIMING = ReminderTimingConfig()
 
-fun ReminderSettings.toReminderTimingConfig() = ReminderTimingConfig(
-    reminderIntervalMillis = reminderMinutes.toMilliseconds(),
+fun ReminderSettings.toReminderTimingConfig(
+    isDebugBuild: Boolean = false,
+) = ReminderTimingConfig(
+    reminderIntervalMillis = if (isDebugBuild && isDebug30SecondReminderEnabled) {
+        DEBUG_REMINDER_INTERVAL_MILLIS
+    } else {
+        reminderMinutes.toMilliseconds()
+    },
     snoozeIntervalMillis = snoozeMinutes.toMilliseconds(),
     pauseDurationMillis = pauseMinutes.toMilliseconds(),
 )
@@ -130,3 +136,5 @@ class ContinuousUsageTracker(
 }
 
 private fun Int.toMilliseconds(): Long = this * 60L * 1_000L
+
+const val DEBUG_REMINDER_INTERVAL_MILLIS = 30_000L

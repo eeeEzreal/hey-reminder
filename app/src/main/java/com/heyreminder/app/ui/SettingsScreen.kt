@@ -33,9 +33,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.heyreminder.app.BuildConfig
 import com.heyreminder.app.data.MonitoringMode
 import com.heyreminder.app.data.OverlayPermissionRepository
 import com.heyreminder.app.data.ReminderSettings
+import com.heyreminder.app.monitor.MonitorDiagnosticSnapshot
 
 private val REMINDER_MINUTE_OPTIONS = listOf(5, 10, 15, 20, 30)
 private val SNOOZE_MINUTE_OPTIONS = listOf(5, 10, 15, 20, 30)
@@ -56,6 +58,7 @@ fun SettingsRoute(
     SettingsScreen(
         settings = state.settings,
         testReminderResult = state.testReminderResult,
+        diagnostics = state.diagnostics,
         onBack = onBack,
         onManageApps = onManageApps,
         onReminderEnabledChange = viewModel::setReminderEnabled,
@@ -63,6 +66,7 @@ fun SettingsRoute(
         onReminderMinutesChange = viewModel::setReminderMinutes,
         onSnoozeMinutesChange = viewModel::setSnoozeMinutes,
         onPauseMinutesChange = viewModel::setPauseMinutes,
+        onDebug30SecondReminderChange = viewModel::setDebug30SecondReminderEnabled,
         onSendTestReminder = {
             if (
                 viewModel.showTestStrongReminder() ==
@@ -80,6 +84,7 @@ fun SettingsRoute(
 fun SettingsScreen(
     settings: ReminderSettings,
     testReminderResult: TestReminderResult?,
+    diagnostics: MonitorDiagnosticSnapshot,
     onBack: () -> Unit,
     onManageApps: () -> Unit,
     onReminderEnabledChange: (Boolean) -> Unit,
@@ -87,6 +92,7 @@ fun SettingsScreen(
     onReminderMinutesChange: (Int) -> Unit,
     onSnoozeMinutesChange: (Int) -> Unit,
     onPauseMinutesChange: (Int) -> Unit,
+    onDebug30SecondReminderChange: (Boolean) -> Unit,
     onSendTestReminder: () -> Unit,
 ) {
     Column(
@@ -127,6 +133,13 @@ fun SettingsScreen(
                     MaterialTheme.colorScheme.error
                 },
             )
+        }
+        if (BuildConfig.DEBUG) {
+            DebugReminderCard(
+                enabled = settings.isDebug30SecondReminderEnabled,
+                onEnabledChange = onDebug30SecondReminderChange,
+            )
+            DebugDiagnosticsCard(diagnostics)
         }
         SettingsSectionTitle("监控模式")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -182,6 +195,91 @@ fun SettingsScreen(
         )
         Spacer(modifier = Modifier.height(32.dp))
     }
+}
+
+@Composable
+private fun DebugReminderCard(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("30 秒端到端测试", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "仅 Debug APK 生效；开启后真实监控链路会在 30 秒到时。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onEnabledChange)
+        }
+    }
+}
+
+@Composable
+private fun DebugDiagnosticsCard(diagnostics: MonitorDiagnosticSnapshot) {
+    SettingsSectionTitle("监控链路诊断（Debug）")
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            DiagnosticLine("Usage Access", diagnostics.usageAccessGranted.toString())
+            DiagnosticLine(
+                "前台识别",
+                "${diagnostics.detectionStatus} · ${diagnostics.rawForegroundPackage ?: "无"}",
+            )
+            DiagnosticLine(
+                "监控命中",
+                "${diagnostics.isForegroundPackageMonitored} " +
+                    "(${diagnostics.monitoredPackageCount} 个目标)",
+            )
+            DiagnosticLine(
+                "连续会话",
+                "${diagnostics.sessionPackage ?: "无"} · " +
+                    "${diagnostics.sessionElapsedMillis / 1_000} 秒 / " +
+                    "${diagnostics.reminderIntervalMillis / 1_000} 秒",
+            )
+            DiagnosticLine(
+                "最近目标会话",
+                "${diagnostics.lastMonitoredSessionPackage ?: "无"} · " +
+                    "${diagnostics.lastMonitoredSessionElapsedMillis / 1_000} 秒",
+            )
+            DiagnosticLine("Engine", diagnostics.enginePhase)
+            DiagnosticLine("最近 UsageEvent", diagnostics.lastUsageEvent)
+            DiagnosticLine("最近会话变化", diagnostics.lastSessionTransition)
+            DiagnosticLine("最近到时事件", diagnostics.lastThresholdEvent)
+            DiagnosticLine("最近 Engine Effect", diagnostics.lastEngineEffect)
+            DiagnosticLine("最近展示结果", diagnostics.lastPresentation)
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticLine(label: String, value: String) {
+    Text(
+        text = "$label：$value",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

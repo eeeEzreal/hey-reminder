@@ -12,6 +12,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -46,7 +47,16 @@ internal class OverlayReminderPresenter(context: Context) {
         settings: ReminderSettings,
         onAction: (ReminderActionCommand) -> Unit,
     ): Boolean {
-        if (!Settings.canDrawOverlays(applicationContext)) return false
+        val canDrawOverlays = Settings.canDrawOverlays(applicationContext)
+        Log.i(
+            TAG,
+            "overlay_show_called package=${event.packageName} level=$level " +
+                "permission=$canDrawOverlays",
+        )
+        if (!canDrawOverlays) {
+            Log.w(TAG, "overlay_show_rejected reason=permission_missing")
+            return false
+        }
 
         return runOnMain {
             dismissOnMain()
@@ -67,6 +77,10 @@ internal class OverlayReminderPresenter(context: Context) {
                 isAnyOverlayVisible = true
                 vibrate(level)
                 true
+            }.onSuccess {
+                Log.i(TAG, "overlay_show_result shown=true package=${event.packageName}")
+            }.onFailure { error ->
+                Log.e(TAG, "overlay_show_result shown=false package=${event.packageName}", error)
             }.getOrDefault(false)
         }
     }
@@ -271,6 +285,8 @@ internal class OverlayReminderPresenter(context: Context) {
     }
 
     companion object {
+        private const val TAG = "HeyOverlayPresenter"
+
         @Volatile
         internal var isAnyOverlayVisible: Boolean = false
             private set

@@ -4,13 +4,17 @@ import android.app.Application
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.heyreminder.app.BuildConfig
 import com.heyreminder.app.data.MonitoringMode
 import com.heyreminder.app.data.OverlayPermissionRepository
 import com.heyreminder.app.data.ReminderSettings
 import com.heyreminder.app.data.ReminderSettingsRepository
 import com.heyreminder.app.monitor.OverlayReminderPresenter
+import com.heyreminder.app.monitor.MonitorDiagnosticSnapshot
+import com.heyreminder.app.monitor.MonitorDiagnostics
 import com.heyreminder.app.monitor.ReminderConditionReachedEvent
 import com.heyreminder.app.monitor.ReminderVisualLevel
+import com.heyreminder.app.monitor.toReminderTimingConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +30,7 @@ enum class TestReminderResult {
 data class SettingsUiState(
     val settings: ReminderSettings = ReminderSettings(),
     val testReminderResult: TestReminderResult? = null,
+    val diagnostics: MonitorDiagnosticSnapshot = MonitorDiagnosticSnapshot(),
 )
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -39,6 +44,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             repository.settings.collect { settings ->
                 _uiState.update { state -> state.copy(settings = settings) }
+            }
+        }
+        viewModelScope.launch {
+            MonitorDiagnostics.snapshots.collect { diagnostics ->
+                _uiState.update { state -> state.copy(diagnostics = diagnostics) }
             }
         }
     }
@@ -63,6 +73,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         repository.setPauseMinutes(minutes)
     }
 
+    fun setDebug30SecondReminderEnabled(enabled: Boolean) = update {
+        repository.setDebug30SecondReminderEnabled(enabled)
+    }
+
     fun showTestStrongReminder(): TestReminderResult {
         if (!overlayPermissionRepository.hasOverlayPermission()) {
             val result = TestReminderResult.NEEDS_OVERLAY_PERMISSION
@@ -71,12 +85,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
         val now = SystemClock.elapsedRealtime()
         val settings = _uiState.value.settings
+        val reminderIntervalMillis = settings
+            .toReminderTimingConfig(isDebugBuild = BuildConfig.DEBUG)
+            .reminderIntervalMillis
         val shown = overlayPresenter.show(
             event = ReminderConditionReachedEvent(
                 packageName = getApplication<Application>().packageName,
-                sessionStartedAtElapsedMillis = now - settings.reminderMinutes * 60_000L,
+                sessionStartedAtElapsedMillis = now - reminderIntervalMillis,
                 reminderDueAtElapsedMillis = now,
-                continuousDurationMillis = settings.reminderMinutes * 60_000L,
+                continuousDurationMillis = reminderIntervalMillis,
             ),
             level = ReminderVisualLevel.FIRST,
             settings = settings,

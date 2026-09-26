@@ -33,6 +33,7 @@ class ReminderSettingsRepositoryTest {
         repository.setReminderMinutes(20)
         repository.setSnoozeMinutes(10)
         repository.setPauseMinutes(60)
+        repository.setDebug30SecondReminderEnabled(true)
 
         val settings = repository.settings.first()
         assertFalse(settings.isReminderEnabled)
@@ -40,6 +41,7 @@ class ReminderSettingsRepositoryTest {
         assertEquals(20, settings.reminderMinutes)
         assertEquals(10, settings.snoozeMinutes)
         assertEquals(60, settings.pauseMinutes)
+        assertEquals(true, settings.isDebug30SecondReminderEnabled)
     }
 
     @Test

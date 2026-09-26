@@ -26,6 +26,7 @@ data class ReminderSettings(
     val reminderMinutes: Int = 10,
     val snoozeMinutes: Int = 5,
     val pauseMinutes: Int = 30,
+    val isDebug30SecondReminderEnabled: Boolean = false,
 )
 
 class ReminderSettingsRepository internal constructor(
@@ -71,6 +72,12 @@ class ReminderSettingsRepository internal constructor(
 
     suspend fun setPauseMinutes(minutes: Int) {
         setPositiveMinutes(PauseMinutesKey, minutes)
+    }
+
+    suspend fun setDebug30SecondReminderEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[Debug30SecondReminderEnabledKey] = enabled
+        }
     }
 
     private suspend fun setPositiveMinutes(
@@ -124,6 +131,8 @@ class ReminderSettingsRepository internal constructor(
         internal val ReminderMinutesKey = intPreferencesKey("reminder_minutes")
         internal val SnoozeMinutesKey = intPreferencesKey("snooze_minutes")
         internal val PauseMinutesKey = intPreferencesKey("pause_minutes")
+        internal val Debug30SecondReminderEnabledKey =
+            booleanPreferencesKey("debug_30_second_reminder_enabled")
         internal const val CURRENT_MONITORING_MODE_VERSION = 2
     }
 }
@@ -144,6 +153,9 @@ private fun toReminderSettings(preferences: Preferences): ReminderSettings {
             .positiveOr(defaults.snoozeMinutes),
         pauseMinutes = preferences[ReminderSettingsRepository.PauseMinutesKey]
             .positiveOr(defaults.pauseMinutes),
+        isDebug30SecondReminderEnabled =
+            preferences[ReminderSettingsRepository.Debug30SecondReminderEnabledKey]
+                ?: defaults.isDebug30SecondReminderEnabled,
     )
 }
 

@@ -14,6 +14,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.heyreminder.app.BuildConfig
 import com.heyreminder.app.MainActivity
 import com.heyreminder.app.R
 import com.heyreminder.app.data.AppSelectionRepository
@@ -46,7 +47,7 @@ class UsageMonitorService : Service() {
     private lateinit var reminderNotifier: UsageReminderNotifier
     private lateinit var reminderPresentationCoordinator: ReminderPresentationCoordinator
     private var currentSettings = ReminderSettings()
-    private var timingConfig = currentSettings.toReminderTimingConfig()
+    private var timingConfig = currentSettings.toReminderTimingConfig(BuildConfig.DEBUG)
     private var usageTracker = ContinuousUsageTracker(timingConfig.reminderIntervalMillis)
     private var reminderActionReducer = ReminderActionReducer(usageTracker, timingConfig)
     private var reminderEngine = ReminderEngine()
@@ -59,6 +60,8 @@ class UsageMonitorService : Service() {
     private var monitorJob: Job? = null
     private var usageState = ContinuousUsageState()
     private var pauseUntilEpochMillis = 0L
+    private var lastDetectionLogKey: String? = null
+    private var lastDiagnosticLogElapsedMillis = Long.MIN_VALUE
 
     override fun onCreate() {
         super.onCreate()
@@ -73,6 +76,7 @@ class UsageMonitorService : Service() {
             overlayPresenter = OverlayReminderPresenter(this),
             notificationPresenter = reminderNotifier,
         )
+        MonitorDiagnostics.resetForServiceStart(timingConfig.reminderIntervalMillis)
         createNotificationChannel()
         startAsForegroundService()
 
@@ -148,20 +152,30 @@ class UsageMonitorService : Service() {
                 delay(POLL_INTERVAL_MILLIS)
                 continue
             }
-            val foregroundPackage = if (usageAccessRepository.hasUsageAccess()) {
-                runCatching { foregroundAppDetector.currentForegroundPackage() }
+            val hasUsageAccess = usageAccessRepository.hasUsageAccess()
+            val detection = if (hasUsageAccess) {
+                runCatching { foregroundAppDetector.detectForegroundApp() }
                     .onFailure { error ->
                         Log.w(TAG, "Unable to determine the foreground app", error)
                     }
-                    .getOrNull()
+                    .getOrElse {
+                        ForegroundDetection(
+                            packageName = null,
+                            status = ForegroundDetectionStatus.DETECTION_FAILED,
+                        )
+                    }
             } else {
-                null
+                ForegroundDetection(
+                    packageName = null,
+                    status = ForegroundDetectionStatus.USAGE_ACCESS_DENIED,
+                )
             }
+            val foregroundPackage = detection.packageName
             val eligibleForegroundPackage = foregroundPackage?.takeUnless { packageName ->
                 packageName == this.packageName || packageName == SYSTEM_UI_PACKAGE
             }
             val nowElapsedMillis = SystemClock.elapsedRealtime()
-            val (previousState, update, reminderEffect) = stateMutex.withLock {
+            val pollResult = stateMutex.withLock {
                 val previous = usageState
                 val currentUpdate = if (pauseUntilEpochMillis > System.currentTimeMillis()) {
                     ContinuousUsageUpdate(state = ContinuousUsageState())
@@ -177,10 +191,34 @@ class UsageMonitorService : Service() {
                 val effect = currentUpdate.event?.let { event ->
                     reminderEngine.onReminderDue(event, nowElapsedMillis)
                 } ?: reminderEngine.onTick(currentUpdate.state, nowElapsedMillis)
-                Triple(previous, currentUpdate, effect)
+                MonitorPollResult(
+                    previousState = previous,
+                    update = currentUpdate,
+                    reminderEffect = effect,
+                    enginePhase = reminderEngine.state.phase,
+                )
             }
-            logStateTransition(previousState, update)
-            reminderEffect?.let { processReminderEffect(it) }
+            val resetReason = sessionResetReason(
+                previousState = pollResult.previousState,
+                currentState = pollResult.update.state,
+                detection = detection,
+                eligibleForegroundPackage = eligibleForegroundPackage,
+                hasUsageAccess = hasUsageAccess,
+            )
+            logDetectionChange(detection)
+            logStateTransition(pollResult.previousState, pollResult.update, resetReason)
+            updatePollDiagnostics(
+                hasUsageAccess = hasUsageAccess,
+                detection = detection,
+                eligibleForegroundPackage = eligibleForegroundPackage,
+                update = pollResult.update,
+                enginePhase = pollResult.enginePhase,
+                nowElapsedMillis = nowElapsedMillis,
+                resetReason = resetReason,
+                reminderEffect = pollResult.reminderEffect,
+            )
+            logDiagnosticHeartbeat(nowElapsedMillis)
+            pollResult.reminderEffect?.let { processReminderEffect(it) }
             delay(POLL_INTERVAL_MILLIS)
         }
     }
@@ -191,12 +229,20 @@ class UsageMonitorService : Service() {
                 false
             } else {
                 currentSettings = settings
-                timingConfig = settings.toReminderTimingConfig()
+                timingConfig = settings.toReminderTimingConfig(BuildConfig.DEBUG)
                 usageTracker = ContinuousUsageTracker(timingConfig.reminderIntervalMillis)
                 reminderActionReducer = ReminderActionReducer(usageTracker, timingConfig)
                 reminderNotifier.updateTimingConfig(timingConfig)
                 usageState = ContinuousUsageState()
                 updateMonitoredPackages()
+                MonitorDiagnostics.update { snapshot ->
+                    snapshot.copy(
+                        updatedAtEpochMillis = System.currentTimeMillis(),
+                        reminderIntervalMillis = timingConfig.reminderIntervalMillis,
+                        enginePhase = reminderEngine.state.phase.name,
+                        lastSessionTransition = "设置变化，会话已重置",
+                    )
+                }
                 true
             }
         }
@@ -254,8 +300,30 @@ class UsageMonitorService : Service() {
 
     private suspend fun processReminderEffect(effect: ReminderEngineEffect) {
         when (effect) {
-            ReminderEngineEffect.DismissReminder -> reminderPresentationCoordinator.dismiss()
+            ReminderEngineEffect.DismissReminder -> {
+                Log.i(TAG, "engine_effect=DISMISS")
+                MonitorDiagnostics.update { snapshot ->
+                    snapshot.copy(
+                        updatedAtEpochMillis = System.currentTimeMillis(),
+                        enginePhase = reminderEngine.state.phase.name,
+                        lastEngineEffect = "DISMISS",
+                    )
+                }
+                reminderPresentationCoordinator.dismiss()
+            }
             is ReminderEngineEffect.ShowReminder -> {
+                Log.i(
+                    TAG,
+                    "engine_effect=SHOW package=${effect.event.packageName} " +
+                        "level=${effect.level}",
+                )
+                MonitorDiagnostics.update { snapshot ->
+                    snapshot.copy(
+                        updatedAtEpochMillis = System.currentTimeMillis(),
+                        enginePhase = reminderEngine.state.phase.name,
+                        lastEngineEffect = "SHOW ${effect.level} ${effect.event.packageName}",
+                    )
+                }
                 val result = reminderPresentationCoordinator.show(
                     event = effect.event,
                     level = effect.level,
@@ -299,6 +367,15 @@ class UsageMonitorService : Service() {
                         "level=${effect.level} overlay=${result.overlayShown} " +
                         "notification=${result.notificationShown}",
                 )
+                MonitorDiagnostics.update { snapshot ->
+                    snapshot.copy(
+                        updatedAtEpochMillis = System.currentTimeMillis(),
+                        enginePhase = reminderEngine.state.phase.name,
+                        lastPresentation =
+                            "${effect.level}: Overlay=${result.overlayShown}, " +
+                                "通知=${result.notificationShown}",
+                    )
+                }
             }
         }
     }
@@ -314,11 +391,15 @@ class UsageMonitorService : Service() {
     private fun logStateTransition(
         previousState: ContinuousUsageState,
         update: ContinuousUsageUpdate,
+        resetReason: String?,
     ) {
         val currentState = update.state
         if (previousState.packageName != currentState.packageName) {
             if (previousState.packageName != null) {
-                Log.i(TAG, "session_reset package=${previousState.packageName}")
+                Log.i(
+                    TAG,
+                    "session_reset package=${previousState.packageName} reason=$resetReason",
+                )
             }
             if (currentState.packageName != null) {
                 Log.i(TAG, "session_started package=${currentState.packageName}")
@@ -331,6 +412,116 @@ class UsageMonitorService : Service() {
                     "duration_ms=${event.continuousDurationMillis}",
             )
         }
+    }
+
+    private fun logDetectionChange(detection: ForegroundDetection) {
+        val key = "${detection.status}:${detection.packageName}:${detection.lastEvent}"
+        if (key == lastDetectionLogKey) return
+        lastDetectionLogKey = key
+        Log.i(
+            TAG,
+            "foreground_detection status=${detection.status} " +
+                "package=${detection.packageName} " +
+                "last_event=${detection.lastEvent?.diagnosticLabel()}",
+        )
+    }
+
+    private fun sessionResetReason(
+        previousState: ContinuousUsageState,
+        currentState: ContinuousUsageState,
+        detection: ForegroundDetection,
+        eligibleForegroundPackage: String?,
+        hasUsageAccess: Boolean,
+    ): String? {
+        if (previousState.packageName == null || previousState.packageName == currentState.packageName) {
+            return null
+        }
+        return when {
+            !hasUsageAccess -> "usage_access_denied"
+            detection.status == ForegroundDetectionStatus.SCREEN_OFF_OR_LOCKED ->
+                "screen_off_or_locked"
+            detection.status == ForegroundDetectionStatus.DETECTION_FAILED -> "detection_failed"
+            detection.packageName == packageName -> "hey_opened"
+            detection.packageName == SYSTEM_UI_PACKAGE -> "system_ui_foreground"
+            eligibleForegroundPackage == null -> "no_foreground_after_transition_grace"
+            eligibleForegroundPackage !in monitoredPackages ->
+                "unmonitored_or_launcher:$eligibleForegroundPackage"
+            else -> "switched_to:$eligibleForegroundPackage"
+        }
+    }
+
+    private fun updatePollDiagnostics(
+        hasUsageAccess: Boolean,
+        detection: ForegroundDetection,
+        eligibleForegroundPackage: String?,
+        update: ContinuousUsageUpdate,
+        enginePhase: ReminderEnginePhase,
+        nowElapsedMillis: Long,
+        resetReason: String?,
+        reminderEffect: ReminderEngineEffect?,
+    ) {
+        val state = update.state
+        val elapsedMillis = state.startedAtElapsedMillis
+            ?.let { startedAt -> (nowElapsedMillis - startedAt).coerceAtLeast(0L) }
+            ?: 0L
+        MonitorDiagnostics.update { snapshot ->
+            snapshot.copy(
+                updatedAtEpochMillis = System.currentTimeMillis(),
+                usageAccessGranted = hasUsageAccess,
+                detectionStatus = detection.status.name,
+                rawForegroundPackage = detection.packageName,
+                eligibleForegroundPackage = eligibleForegroundPackage,
+                isForegroundPackageMonitored =
+                    eligibleForegroundPackage != null && eligibleForegroundPackage in monitoredPackages,
+                monitoredPackageCount = monitoredPackages.size,
+                sessionPackage = state.packageName,
+                sessionElapsedMillis = elapsedMillis,
+                lastMonitoredSessionPackage = state.packageName
+                    ?: snapshot.lastMonitoredSessionPackage,
+                lastMonitoredSessionElapsedMillis = if (state.packageName != null) {
+                    elapsedMillis
+                } else {
+                    snapshot.lastMonitoredSessionElapsedMillis
+                },
+                reminderIntervalMillis = timingConfig.reminderIntervalMillis,
+                enginePhase = enginePhase.name,
+                lastUsageEvent = detection.lastEvent?.diagnosticLabel() ?: snapshot.lastUsageEvent,
+                lastSessionTransition = when {
+                    resetReason != null ->
+                        "重置 ${previousPackageLabel(snapshot.sessionPackage)}：$resetReason"
+                    snapshot.sessionPackage != state.packageName && state.packageName != null ->
+                        "开始 ${state.packageName}"
+                    else -> snapshot.lastSessionTransition
+                },
+                lastThresholdEvent = update.event?.let { event ->
+                    "${event.packageName} @ ${event.continuousDurationMillis}ms"
+                } ?: snapshot.lastThresholdEvent,
+                lastEngineEffect = reminderEffect?.diagnosticLabel()
+                    ?: snapshot.lastEngineEffect,
+            )
+        }
+    }
+
+    private fun logDiagnosticHeartbeat(nowElapsedMillis: Long) {
+        if (
+            lastDiagnosticLogElapsedMillis != Long.MIN_VALUE &&
+            nowElapsedMillis - lastDiagnosticLogElapsedMillis < DIAGNOSTIC_LOG_INTERVAL_MILLIS
+        ) {
+            return
+        }
+        lastDiagnosticLogElapsedMillis = nowElapsedMillis
+        val snapshot = MonitorDiagnostics.snapshots.value
+        Log.d(
+            TAG,
+            "diagnostic detection=${snapshot.detectionStatus} " +
+                "foreground=${snapshot.rawForegroundPackage} " +
+                "eligible=${snapshot.eligibleForegroundPackage} " +
+                "monitored=${snapshot.isForegroundPackageMonitored}/" +
+                "${snapshot.monitoredPackageCount} session=${snapshot.sessionPackage} " +
+                "elapsed_ms=${snapshot.sessionElapsedMillis} " +
+                "threshold_ms=${snapshot.reminderIntervalMillis} " +
+                "engine=${snapshot.enginePhase} last_event=${snapshot.lastUsageEvent}",
+        )
     }
 
     private fun startAsForegroundService() {
@@ -381,6 +572,7 @@ class UsageMonitorService : Service() {
         private const val MONITOR_CHANNEL_ID = "usage_monitor"
         private const val MONITOR_NOTIFICATION_ID = 1001
         private const val POLL_INTERVAL_MILLIS = 1_000L
+        private const val DIAGNOSTIC_LOG_INTERVAL_MILLIS = 10_000L
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 
         fun start(context: Context) {
@@ -394,4 +586,18 @@ class UsageMonitorService : Service() {
             context.stopService(Intent(context, UsageMonitorService::class.java))
         }
     }
+
+    private data class MonitorPollResult(
+        val previousState: ContinuousUsageState,
+        val update: ContinuousUsageUpdate,
+        val reminderEffect: ReminderEngineEffect?,
+        val enginePhase: ReminderEnginePhase,
+    )
 }
+
+private fun ReminderEngineEffect.diagnosticLabel(): String = when (this) {
+    ReminderEngineEffect.DismissReminder -> "DISMISS"
+    is ReminderEngineEffect.ShowReminder -> "SHOW $level ${event.packageName}"
+}
+
+private fun previousPackageLabel(packageName: String?): String = packageName ?: "当前会话"
