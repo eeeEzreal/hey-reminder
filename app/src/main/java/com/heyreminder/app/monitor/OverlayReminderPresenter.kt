@@ -39,6 +39,10 @@ internal class OverlayReminderPresenter(context: Context) {
     var isVisible: Boolean = false
         private set
 
+    @Volatile
+    var lastFailureReason: String? = null
+        private set
+
     private var overlayView: View? = null
 
     fun show(
@@ -48,12 +52,14 @@ internal class OverlayReminderPresenter(context: Context) {
         onAction: (ReminderActionCommand) -> Unit,
     ): Boolean {
         val canDrawOverlays = Settings.canDrawOverlays(applicationContext)
+        lastFailureReason = null
         Log.i(
             TAG,
             "overlay_show_called package=${event.packageName} level=$level " +
                 "permission=$canDrawOverlays",
         )
         if (!canDrawOverlays) {
+            lastFailureReason = "SYSTEM_ALERT_WINDOW denied while app is in background"
             Log.w(TAG, "overlay_show_rejected reason=permission_missing")
             return false
         }
@@ -65,7 +71,8 @@ internal class OverlayReminderPresenter(context: Context) {
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT,
             ).apply {
                 gravity = Gravity.CENTER
@@ -78,8 +85,16 @@ internal class OverlayReminderPresenter(context: Context) {
                 vibrate(level)
                 true
             }.onSuccess {
+                lastFailureReason = null
                 Log.i(TAG, "overlay_show_result shown=true package=${event.packageName}")
             }.onFailure { error ->
+                lastFailureReason = buildString {
+                    append(error.javaClass.simpleName)
+                    error.message?.takeIf(String::isNotBlank)?.let { message ->
+                        append(": ")
+                        append(message)
+                    }
+                }
                 Log.e(TAG, "overlay_show_result shown=false package=${event.packageName}", error)
             }.getOrDefault(false)
         }
@@ -160,9 +175,13 @@ internal class OverlayReminderPresenter(context: Context) {
                 reminderText("你已经忽略了第一次提醒", 20f, Typeface.BOLD).withTopMargin(6),
             )
         }
-        val durationMinutes = max(1L, event.continuousDurationMillis / 60_000L)
+        val durationLabel = if (event.continuousDurationMillis < 60_000L) {
+            "${max(1L, event.continuousDurationMillis / 1_000L)} 秒"
+        } else {
+            "${event.continuousDurationMillis / 60_000L} 分钟"
+        }
         card.addView(
-            reminderText("你已经连续使用 $durationMinutes 分钟", 24f, Typeface.BOLD)
+            reminderText("你已经连续使用 $durationLabel", 24f, Typeface.BOLD)
                 .withTopMargin(10),
         )
         card.addView(

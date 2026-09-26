@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
 private const val REMINDER_STATS_STORE_NAME = "reminder_stats"
-private const val DAILY_COUNT_KEY_PREFIX = "reminder_count_"
+// Phase 9.1: older buckets counted notification fallback as success. Keep them untouched but do not
+// mix them with the new, stricter metric that counts only a successfully displayed Overlay.
+private const val DAILY_COUNT_KEY_PREFIX = "overlay_reminder_count_"
 
 private val Context.reminderStatsDataStore by preferencesDataStore(
     name = REMINDER_STATS_STORE_NAME,
@@ -63,8 +65,8 @@ class ReminderStatsRepository internal constructor(
     fun currentDate(): LocalDate = LocalDate.now(clock)
 
     /**
-     * Records one reminder only after its user-visible notification was actually triggered.
-     * Starting a timer or handling a notification action must never call this method.
+     * Records one reminder only after its primary Overlay was actually added to the window.
+     * Notification fallback, starting a timer, and handling an action must never call this method.
      */
     suspend fun recordTriggeredReminder(triggeredAt: Instant = clock.instant()) {
         val date = triggeredAt.atZone(clock.zone).toLocalDate()
@@ -98,4 +100,3 @@ private fun Preferences.toDailyReminderCounts(): DailyReminderCounts {
 
     return DailyReminderCounts(countsByDate = counts)
 }
-

@@ -3,6 +3,8 @@ package com.heyreminder.app.data
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.preferencesOf
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -53,6 +55,21 @@ class ReminderStatsRepositoryTest {
         )
     }
 
+    @Test
+    fun `legacy notification fallback counts are not reported as successful overlays`() = runBlocking {
+        val zone = ZoneId.of("Asia/Shanghai")
+        val repository = ReminderStatsRepository(
+            dataStore = InMemoryPreferencesDataStore(
+                preferencesOf(
+                    intPreferencesKey("reminder_count_2026-09-21") to 2,
+                ),
+            ),
+            clock = Clock.fixed(Instant.parse("2026-09-21T02:00:00Z"), zone),
+        )
+
+        assertEquals(0, repository.dailyCounts.first()[LocalDate.parse("2026-09-21")])
+    }
+
     private fun createRepository(clock: Clock): ReminderStatsRepository {
         return ReminderStatsRepository(
             dataStore = InMemoryPreferencesDataStore(),
@@ -60,9 +77,11 @@ class ReminderStatsRepositoryTest {
         )
     }
 
-    private class InMemoryPreferencesDataStore : DataStore<Preferences> {
+    private class InMemoryPreferencesDataStore(
+        initialPreferences: Preferences = emptyPreferences(),
+    ) : DataStore<Preferences> {
         private val mutex = Mutex()
-        private val state = MutableStateFlow<Preferences>(emptyPreferences())
+        private val state = MutableStateFlow(initialPreferences)
 
         override val data: Flow<Preferences> = state.asStateFlow()
 

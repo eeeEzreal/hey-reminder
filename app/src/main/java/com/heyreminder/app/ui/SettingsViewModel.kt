@@ -41,6 +41,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
+        MonitorDiagnostics.initialize(application)
         viewModelScope.launch {
             repository.settings.collect { settings ->
                 _uiState.update { state -> state.copy(settings = settings) }

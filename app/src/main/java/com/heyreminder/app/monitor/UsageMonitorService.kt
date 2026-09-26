@@ -76,6 +76,7 @@ class UsageMonitorService : Service() {
             overlayPresenter = OverlayReminderPresenter(this),
             notificationPresenter = reminderNotifier,
         )
+        MonitorDiagnostics.initialize(this)
         MonitorDiagnostics.resetForServiceStart(timingConfig.reminderIntervalMillis)
         createNotificationChannel()
         startAsForegroundService()
@@ -240,7 +241,6 @@ class UsageMonitorService : Service() {
                         updatedAtEpochMillis = System.currentTimeMillis(),
                         reminderIntervalMillis = timingConfig.reminderIntervalMillis,
                         enginePhase = reminderEngine.state.phase.name,
-                        lastSessionTransition = "设置变化，会话已重置",
                     )
                 }
                 true
@@ -291,6 +291,15 @@ class UsageMonitorService : Service() {
             true
         }
         if (accepted) reminderPresentationCoordinator.dismiss()
+        if (accepted) {
+            MonitorDiagnostics.update(persistHistory = true) { snapshot ->
+                snapshot.copy(
+                    updatedAtEpochMillis = System.currentTimeMillis(),
+                    enginePhase = reminderEngine.state.phase.name,
+                    lastEngineEffect = "ACTION ${command.action.name} ${command.target.packageName}",
+                )
+            }
+        }
         Log.i(
             TAG,
             "reminder_action action=${command.action.name} accepted=$accepted " +
@@ -302,7 +311,7 @@ class UsageMonitorService : Service() {
         when (effect) {
             ReminderEngineEffect.DismissReminder -> {
                 Log.i(TAG, "engine_effect=DISMISS")
-                MonitorDiagnostics.update { snapshot ->
+                MonitorDiagnostics.update(persistHistory = true) { snapshot ->
                     snapshot.copy(
                         updatedAtEpochMillis = System.currentTimeMillis(),
                         enginePhase = reminderEngine.state.phase.name,
@@ -317,7 +326,7 @@ class UsageMonitorService : Service() {
                     "engine_effect=SHOW package=${effect.event.packageName} " +
                         "level=${effect.level}",
                 )
-                MonitorDiagnostics.update { snapshot ->
+                MonitorDiagnostics.update(persistHistory = true) { snapshot ->
                     snapshot.copy(
                         updatedAtEpochMillis = System.currentTimeMillis(),
                         enginePhase = reminderEngine.state.phase.name,
@@ -365,15 +374,19 @@ class UsageMonitorService : Service() {
                     TAG,
                     "reminder_presented package=${effect.event.packageName} " +
                         "level=${effect.level} overlay=${result.overlayShown} " +
-                        "notification=${result.notificationShown}",
+                        "notification=${result.notificationShown} " +
+                        "overlay_failure=${result.overlayFailureReason}",
                 )
-                MonitorDiagnostics.update { snapshot ->
+                MonitorDiagnostics.update(persistHistory = true) { snapshot ->
                     snapshot.copy(
                         updatedAtEpochMillis = System.currentTimeMillis(),
                         enginePhase = reminderEngine.state.phase.name,
                         lastPresentation =
                             "${effect.level}: Overlay=${result.overlayShown}, " +
-                                "通知=${result.notificationShown}",
+                                "通知=${result.notificationShown}" +
+                                (result.overlayFailureReason?.let { reason ->
+                                    "，失败原因=$reason"
+                                } ?: ""),
                     )
                 }
             }
@@ -464,7 +477,13 @@ class UsageMonitorService : Service() {
         val elapsedMillis = state.startedAtElapsedMillis
             ?.let { startedAt -> (nowElapsedMillis - startedAt).coerceAtLeast(0L) }
             ?: 0L
-        MonitorDiagnostics.update { snapshot ->
+        val sessionChanged = MonitorDiagnostics.snapshots.value.sessionPackage != state.packageName
+        MonitorDiagnostics.update(
+            persistHistory = sessionChanged ||
+                resetReason != null ||
+                update.event != null ||
+                reminderEffect != null,
+        ) { snapshot ->
             snapshot.copy(
                 updatedAtEpochMillis = System.currentTimeMillis(),
                 usageAccessGranted = hasUsageAccess,
@@ -510,6 +529,7 @@ class UsageMonitorService : Service() {
             return
         }
         lastDiagnosticLogElapsedMillis = nowElapsedMillis
+        if (BuildConfig.DEBUG) MonitorDiagnostics.persistCurrent()
         val snapshot = MonitorDiagnostics.snapshots.value
         Log.d(
             TAG,
