@@ -193,7 +193,29 @@ fun SettingsScreen(
             options = PAUSE_MINUTE_OPTIONS,
             onSelected = onPauseMinutesChange,
         )
+        AboutHeyCard()
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun AboutHeyCard() {
+    SettingsSectionTitle("关于 Hey!")
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            DiagnosticLine("版本", "v${BuildConfig.VERSION_NAME}")
+            DiagnosticLine("Build", BuildConfig.VERSION_CODE.toString())
+            DiagnosticLine("Git Commit", BuildConfig.GIT_COMMIT)
+        }
     }
 }
 

@@ -3,6 +3,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val heyVersionName = "0.1.1"
+val heyVersionCode = 2
+val gitCommitShort = providers.exec {
+    commandLine("git", "rev-parse", "--short=7", "HEAD")
+    isIgnoreExitValue = true
+}.standardOutput.asText.map { output -> output.trim().ifBlank { "unknown" } }
+
 android {
     namespace = "com.heyreminder.app"
     compileSdk = 36
@@ -11,8 +18,9 @@ android {
         applicationId = "com.heyreminder.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = heyVersionCode
+        versionName = heyVersionName
+        buildConfigField("String", "GIT_COMMIT", "\"${gitCommitShort.get()}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -41,6 +49,15 @@ android {
     lint {
         lintConfig = file("lint.xml")
     }
+}
+
+tasks.register<Copy>("exportDebugApk") {
+    group = "distribution"
+    description = "Build and copy a versioned Debug APK for installation and acceptance testing."
+    dependsOn("assembleDebug")
+    from(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk"))
+    into(rootProject.layout.projectDirectory.dir("artifacts/apk"))
+    rename("app-debug\\.apk", "Hey-v$heyVersionName-debug.apk")
 }
 
 dependencies {

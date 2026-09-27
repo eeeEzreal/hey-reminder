@@ -19,3 +19,5 @@ $env:ANDROID_USER_HOME="$PWD\.android"
 ```
 
 技术决策和已知风险见 [`docs/TECHNICAL_PLAN.md`](docs/TECHNICAL_PLAN.md)，重要产品演进及其原因见 [`docs/product-evolution.md`](docs/product-evolution.md)。
+
+版本递增、Build 身份和带版本号的测试 APK 交付规则见 [`docs/VERSIONING.md`](docs/VERSIONING.md)。
